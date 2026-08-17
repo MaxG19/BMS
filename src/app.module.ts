@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { envValidationSchema } from './config/env.validation';
 import { PrismaModule } from './database/prisma/prisma.module';
+import { RedisModule } from './common/redis/redis.module';
 
 
 @Module({
@@ -13,6 +14,7 @@ import { PrismaModule } from './database/prisma/prisma.module';
       validationSchema: envValidationSchema,
     }),
     PrismaModule,
+    RedisModule,
   ],
   controllers: [AppController],
   providers: [AppService],
