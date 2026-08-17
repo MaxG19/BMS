@@ -1,0 +1,56 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bms-backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://bms_user:bms_dev_password@postgres:5432/bms
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run start:dev
+
+  postgres:
+    image: postgres:18
+    container_name: bms-postgres
+    environment:
+      POSTGRES_USER: bms_user
+      POSTGRES_PASSWORD: bms_dev_password
+      POSTGRES_DB: bms
+    ports:
+      - "5433:5432"
+    volumes:
+      - bms-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bms_user -d bms"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    container_name: bms-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - bms-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  bms-postgres-data:
+  bms-redis-data:
