@@ -14,13 +14,14 @@ datasource db {
 }
 
 model Identity {
-  id        String   @id @default(uuid()) @db.Uuid
-  email     String   @unique
-  name      String
-  status    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  memberships Membership[]
+  id                     String                   @id @default(uuid()) @db.Uuid
+  email                  String                   @unique
+  name                   String
+  status                 String
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  memberships            Membership[]
+  authenticationProviders AuthenticationProvider[]
 }
 
 model Organization {
@@ -103,4 +104,22 @@ model Membership {
   role       Role       @relation(fields: [roleId], references: [id])
 
   @@unique([identityId, businessId])
+}
+
+enum ProviderType {
+  PASSWORD
+  GOOGLE
+}
+
+model AuthenticationProvider {
+  id           String       @id @default(uuid()) @db.Uuid
+  identityId   String       @db.Uuid
+  providerType ProviderType
+  passwordHash String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  identity     Identity     @relation(fields: [identityId], references: [id])
+
+  @@unique([identityId, providerType])
 }
