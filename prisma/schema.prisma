@@ -49,6 +49,7 @@ model Business {
   organization   Organization @relation(fields: [organizationId], references: [id])
   branches       Branch[]
   memberships Membership[]
+  invitations Invitation[]
 }
 
 model Branch {
@@ -71,6 +72,7 @@ model Role {
 
   permissions RolePermission[]
   memberships Membership[]
+  invitations Invitation[]
 }
 
 model Permission {
@@ -148,4 +150,19 @@ model AuditLog {
   createdAt  DateTime  @default(now())
 
   identity   Identity? @relation(fields: [identityId], references: [id])
+}
+
+model Invitation {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @db.Uuid
+  roleId     String   @db.Uuid
+  email      String
+  token      String   @unique
+  status     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business   Business @relation(fields: [businessId], references: [id])
+  role       Role     @relation(fields: [roleId], references: [id])
 }
