@@ -4,8 +4,8 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
@@ -14,16 +14,16 @@ datasource db {
 }
 
 model Identity {
-  id                     String                   @id @default(uuid()) @db.Uuid
-  email                  String                   @unique
-  name                   String
-  status                 String
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  memberships            Membership[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  email                   String                   @unique
+  name                    String
+  status                  String
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  memberships             Membership[]
   authenticationProviders AuthenticationProvider[]
-  sessions Session[]
-  auditLogs AuditLog[]
+  sessions                Session[]
+  auditLogs               AuditLog[]
 }
 
 model Organization {
@@ -46,10 +46,11 @@ model Business {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  branches       Branch[]
-  memberships Membership[]
-  invitations Invitation[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branches     Branch[]
+  memberships  Membership[]
+  invitations  Invitation[]
+
   @@index([organizationId])
 }
 
@@ -62,7 +63,8 @@ model Branch {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business   Business @relation(fields: [businessId], references: [id])
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
   @@index([businessId])
 }
 
@@ -78,20 +80,20 @@ model Role {
 }
 
 model Permission {
-  id          String           @id @default(uuid()) @db.Uuid
-  name        String           @unique
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id        String           @id @default(uuid()) @db.Uuid
+  name      String           @unique
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
-  roles       RolePermission[]
+  roles RolePermission[]
 }
 
 model RolePermission {
   roleId       String     @db.Uuid
   permissionId String     @db.Uuid
 
-  role         Role       @relation(fields: [roleId], references: [id])
-  permission   Permission @relation(fields: [permissionId], references: [id])
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
 
   @@id([roleId, permissionId])
   @@index([permissionId])
@@ -106,9 +108,9 @@ model Membership {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  identity   Identity   @relation(fields: [identityId], references: [id])
-  business   Business   @relation(fields: [businessId], references: [id])
-  role       Role       @relation(fields: [roleId], references: [id])
+  identity Identity @relation(fields: [identityId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@unique([identityId, businessId])
   @@index([businessId])
@@ -128,7 +130,7 @@ model AuthenticationProvider {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  identity     Identity     @relation(fields: [identityId], references: [id])
+  identity Identity @relation(fields: [identityId], references: [id], onDelete: Restrict)
 
   @@unique([identityId, providerType])
   @@index([identityId])
@@ -145,7 +147,8 @@ model Session {
   expiresAt        DateTime
   revokedAt        DateTime?
 
-  identity         Identity  @relation(fields: [identityId], references: [id])
+  identity Identity @relation(fields: [identityId], references: [id], onDelete: Restrict)
+
   @@index([identityId])
   @@index([refreshTokenHash])
 }
@@ -157,7 +160,8 @@ model AuditLog {
   metadata   Json
   createdAt  DateTime  @default(now())
 
-  identity   Identity? @relation(fields: [identityId], references: [id])
+  identity Identity? @relation(fields: [identityId], references: [id], onDelete: SetNull)
+
   @@index([identityId])
 }
 
@@ -172,8 +176,9 @@ model Invitation {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business   Business @relation(fields: [businessId], references: [id])
-  role       Role     @relation(fields: [roleId], references: [id])
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
   @@index([businessId])
   @@index([roleId])
 }
