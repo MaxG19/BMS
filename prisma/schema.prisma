@@ -22,6 +22,7 @@ model Identity {
   updatedAt              DateTime                 @updatedAt
   memberships            Membership[]
   authenticationProviders AuthenticationProvider[]
+  sessions Session[]
 }
 
 model Organization {
@@ -122,4 +123,18 @@ model AuthenticationProvider {
   identity     Identity     @relation(fields: [identityId], references: [id])
 
   @@unique([identityId, providerType])
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  identityId       String    @db.Uuid
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  createdAt        DateTime  @default(now())
+  lastActiveAt     DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  identity         Identity  @relation(fields: [identityId], references: [id])
 }
