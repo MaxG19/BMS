@@ -23,6 +23,7 @@ model Identity {
   memberships            Membership[]
   authenticationProviders AuthenticationProvider[]
   sessions Session[]
+  auditLogs AuditLog[]
 }
 
 model Organization {
@@ -137,4 +138,14 @@ model Session {
   revokedAt        DateTime?
 
   identity         Identity  @relation(fields: [identityId], references: [id])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  identityId String?   @db.Uuid
+  eventType  String
+  metadata   Json
+  createdAt  DateTime  @default(now())
+
+  identity   Identity? @relation(fields: [identityId], references: [id])
 }
