@@ -12,3 +12,11 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+model Identity {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  name      String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
