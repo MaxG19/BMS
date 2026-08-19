@@ -50,6 +50,7 @@ model Business {
   branches       Branch[]
   memberships Membership[]
   invitations Invitation[]
+  @@index([organizationId])
 }
 
 model Branch {
@@ -62,6 +63,7 @@ model Branch {
   updatedAt  DateTime @updatedAt
 
   business   Business @relation(fields: [businessId], references: [id])
+  @@index([businessId])
 }
 
 model Role {
@@ -92,6 +94,7 @@ model RolePermission {
   permission   Permission @relation(fields: [permissionId], references: [id])
 
   @@id([roleId, permissionId])
+  @@index([permissionId])
 }
 
 model Membership {
@@ -108,6 +111,8 @@ model Membership {
   role       Role       @relation(fields: [roleId], references: [id])
 
   @@unique([identityId, businessId])
+  @@index([businessId])
+  @@index([roleId])
 }
 
 enum ProviderType {
@@ -126,6 +131,7 @@ model AuthenticationProvider {
   identity     Identity     @relation(fields: [identityId], references: [id])
 
   @@unique([identityId, providerType])
+  @@index([identityId])
 }
 
 model Session {
@@ -140,6 +146,8 @@ model Session {
   revokedAt        DateTime?
 
   identity         Identity  @relation(fields: [identityId], references: [id])
+  @@index([identityId])
+  @@index([refreshTokenHash])
 }
 
 model AuditLog {
@@ -150,6 +158,7 @@ model AuditLog {
   createdAt  DateTime  @default(now())
 
   identity   Identity? @relation(fields: [identityId], references: [id])
+  @@index([identityId])
 }
 
 model Invitation {
@@ -165,4 +174,6 @@ model Invitation {
 
   business   Business @relation(fields: [businessId], references: [id])
   role       Role     @relation(fields: [roleId], references: [id])
+  @@index([businessId])
+  @@index([roleId])
 }
