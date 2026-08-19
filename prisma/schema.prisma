@@ -20,6 +20,7 @@ model Identity {
   status    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  memberships Membership[]
 }
 
 model Organization {
@@ -44,6 +45,7 @@ model Business {
 
   organization   Organization @relation(fields: [organizationId], references: [id])
   branches       Branch[]
+  memberships Membership[]
 }
 
 model Branch {
@@ -65,6 +67,7 @@ model Role {
   updatedAt   DateTime         @updatedAt
 
   permissions RolePermission[]
+  memberships Membership[]
 }
 
 model Permission {
@@ -84,4 +87,20 @@ model RolePermission {
   permission   Permission @relation(fields: [permissionId], references: [id])
 
   @@id([roleId, permissionId])
+}
+
+model Membership {
+  id         String   @id @default(uuid()) @db.Uuid
+  identityId String   @db.Uuid
+  businessId String   @db.Uuid
+  roleId     String   @db.Uuid
+  status     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  identity   Identity   @relation(fields: [identityId], references: [id])
+  business   Business   @relation(fields: [businessId], references: [id])
+  role       Role       @relation(fields: [roleId], references: [id])
+
+  @@unique([identityId, businessId])
 }
