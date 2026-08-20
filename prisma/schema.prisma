@@ -23,6 +23,22 @@ enum ProductStatus {
   ARCHIVED
 }
 
+enum StockMovementType {
+  RECEIPT
+  SALE_DEDUCTION
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN
+  COUNT_ADJUSTMENT
+}
+
+enum StockCountStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
 model Identity {
   id                      String                   @id @default(uuid()) @db.Uuid
   email                   String                   @unique
@@ -34,6 +50,7 @@ model Identity {
   authenticationProviders AuthenticationProvider[]
   sessions                Session[]
   auditLogs               AuditLog[]
+  stockMovements          StockMovement[]
 }
 
 model Organization {
@@ -94,14 +111,77 @@ model Product {
   costPrice  Decimal?      @db.Decimal(12, 2)
   status     ProductStatus @default(ACTIVE)
 
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category         Category?         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  inventoryRecords InventoryRecord[]
+  stockMovements   StockMovement[]
+  stockCountItems  StockCountItem[]
 
   @@unique([businessId, sku])
   @@index([businessId])
   @@index([categoryId])
   @@index([sku])
   @@index([barcode])
+}
+
+model InventoryRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  branchId       String   @db.Uuid
+  productId      String   @db.Uuid
+  quantityOnHand Decimal  @default(0) @db.Decimal(12, 3)
+  reorderLevel   Decimal? @db.Decimal(12, 3)
+
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, productId])
+}
+
+model StockMovement {
+  id            String            @id @default(uuid()) @db.Uuid
+  branchId      String            @db.Uuid
+  productId     String            @db.Uuid
+  movementType  StockMovementType
+  quantityDelta Decimal           @db.Decimal(12, 3)
+  referenceType String?
+  referenceId   String?           @db.Uuid
+  performedBy   String?           @db.Uuid
+  createdAt     DateTime          @default(now())
+
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  performer Identity? @relation(fields: [performedBy], references: [id], onDelete: SetNull)
+
+  @@index([branchId, productId, createdAt])
+  @@index([performedBy])
+}
+
+model StockCount {
+  id        String           @id @default(uuid()) @db.Uuid
+  branchId  String           @db.Uuid
+  status    StockCountStatus @default(OPEN)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  branch Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  items  StockCountItem[]
+
+  @@index([branchId])
+}
+
+model StockCountItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  stockCountId     String   @db.Uuid
+  productId        String   @db.Uuid
+  systemQuantity   Decimal  @db.Decimal(12, 3)
+  countedQuantity  Decimal? @db.Decimal(12, 3)
+  varianceQuantity Decimal? @db.Decimal(12, 3)
+
+  stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Restrict)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([stockCountId, productId])
+  @@index([productId])
 }
 
 model Branch {
@@ -113,7 +193,10 @@ model Branch {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  inventoryRecords InventoryRecord[]
+  stockMovements   StockMovement[]
+  stockCounts      StockCount[]
 
   @@index([businessId])
 }
