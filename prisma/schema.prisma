@@ -58,6 +58,19 @@ enum GoodsReceiptStatus {
   COMPLETE
 }
 
+enum SaleType {
+  SALE
+  RETURN
+}
+
+enum SaleStatus {
+  HELD
+  COMPLETED
+  CANCELLED
+  RETURNED
+  PARTIALLY_RETURNED
+}
+
 model Identity {
   id                      String                   @id @default(uuid()) @db.Uuid
   email                   String                   @unique
@@ -72,6 +85,7 @@ model Identity {
   stockMovements          StockMovement[]
   createdPurchaseOrders   PurchaseOrder[]
   receivedGoodsReceipts   GoodsReceipt[]
+  salesAsCashier      Sale[]
 }
 
 model Organization {
@@ -102,6 +116,7 @@ model Business {
   products       Product[]
   suppliers      Supplier[]
   purchaseOrders PurchaseOrder[]
+  sales Sale[]
 
   @@index([organizationId])
 }
@@ -140,6 +155,7 @@ model Product {
   stockMovements     StockMovement[]
   stockCountItems    StockCountItem[]
   purchaseOrderItems PurchaseOrderItem[]
+  saleItems SaleItem[]
 
   @@unique([businessId, sku])
   @@index([businessId])
@@ -222,6 +238,7 @@ model Branch {
   stockMovements   StockMovement[]
   stockCounts      StockCount[]
   purchaseOrders   PurchaseOrder[]
+  sales Sale[]
 
   @@index([businessId])
 }
@@ -414,4 +431,51 @@ model GoodsReceiptItem {
 
   goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Restrict)
   purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+}
+
+model Sale {
+  id             String     @id @default(uuid()) @db.Uuid
+  businessId     String     @db.Uuid
+  branchId       String     @db.Uuid
+  customerId     String?    @db.Uuid
+  cashierId      String     @db.Uuid
+  saleType       SaleType   @default(SALE)
+  originalSaleId String?    @db.Uuid
+  status         SaleStatus @default(HELD)
+  receiptNumber  String?
+  subtotal       Decimal    @db.Decimal(12, 2)
+  discountTotal  Decimal    @db.Decimal(12, 2)
+  taxTotal       Decimal    @db.Decimal(12, 2)
+  totalAmount    Decimal    @db.Decimal(12, 2)
+
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashier      Identity @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+  originalSale Sale?    @relation("SaleReturns", fields: [originalSaleId], references: [id], onDelete: Restrict)
+  returnSales  Sale[]   @relation("SaleReturns")
+  items        SaleItem[]
+
+  @@index([businessId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([cashierId])
+  @@index([status])
+  @@index([receiptNumber])
+}
+
+model SaleItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  saleId         String  @db.Uuid
+  productId      String  @db.Uuid
+  quantity       Decimal @db.Decimal(12, 3)
+  unitPrice      Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @db.Decimal(12, 2)
+  taxAmount      Decimal @db.Decimal(12, 2)
+  lineTotal      Decimal @db.Decimal(12, 2)
+
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
 }
