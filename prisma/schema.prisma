@@ -84,6 +84,11 @@ enum PaymentStatus {
   FAILED
 }
 
+enum CustomerStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model Identity {
   id                      String                   @id @default(uuid()) @db.Uuid
   email                   String                   @unique
@@ -131,6 +136,7 @@ model Business {
   suppliers      Supplier[]
   purchaseOrders PurchaseOrder[]
   sales          Sale[]
+  customers      Customer[]
 
   @@index([organizationId])
 }
@@ -470,6 +476,7 @@ model Sale {
   items        SaleItem[]
   payments     Payment[]
   refunds      Refund[]
+  customer     Customer?  @relation(fields: [customerId], references: [id])
 
   @@index([businessId])
   @@index([branchId])
@@ -526,4 +533,21 @@ model Refund {
   processor Identity @relation(fields: [processedBy], references: [id], onDelete: Restrict)
 
   @@index([saleId])
+}
+
+model Customer {
+  id                 String         @id @default(uuid()) @db.Uuid
+  businessId         String         @db.Uuid
+  name               String
+  phone              String?
+  email              String?
+  loyaltyPoints      Int            @default(0)
+  storeCreditBalance Decimal        @default(0) @db.Decimal(12, 2)
+  status             CustomerStatus @default(ACTIVE)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  sales    Sale[]
+
+  @@index([businessId])
+  @@index([phone])
 }
