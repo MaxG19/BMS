@@ -8,10 +8,6 @@ import { PasswordPolicyService } from './password-policy.service';
 @Module({
   imports: [PrismaModule],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    PasswordHashService,
-    PasswordPolicyService,
-  ],
+  providers: [AuthService, PasswordHashService, PasswordPolicyService],
 })
 export class AuthModule {}
