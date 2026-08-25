@@ -127,16 +127,18 @@ model Business {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  branches       Branch[]
-  memberships    Membership[]
-  invitations    Invitation[]
-  categories     Category[]
-  products       Product[]
-  suppliers      Supplier[]
-  purchaseOrders PurchaseOrder[]
-  sales          Sale[]
-  customers      Customer[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branches             Branch[]
+  memberships          Membership[]
+  invitations          Invitation[]
+  categories           Category[]
+  products             Product[]
+  suppliers            Supplier[]
+  purchaseOrders       PurchaseOrder[]
+  sales                Sale[]
+  customers            Customer[]
+  taxConfiguration     TaxConfiguration?
+  receiptConfiguration ReceiptConfiguration?
 
   @@index([organizationId])
 }
@@ -550,4 +552,25 @@ model Customer {
 
   @@index([businessId])
   @@index([phone])
+}
+
+model TaxConfiguration {
+  id           String  @id @default(uuid()) @db.Uuid
+  businessId   String  @unique @db.Uuid
+  taxRate      Decimal @db.Decimal(5, 2)
+  taxInclusive Boolean @default(false)
+  taxName      String
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+}
+
+model ReceiptConfiguration {
+  id               String  @id @default(uuid()) @db.Uuid
+  businessId       String  @unique @db.Uuid
+  headerText       String?
+  footerText       String?
+  logoUrl          String?
+  showTaxBreakdown Boolean @default(true)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 }
