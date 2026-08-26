@@ -135,6 +135,7 @@ export class RefreshTokenService {
 
     const accessToken = await this.accessTokenService.generate(
       session.identityId,
+      session.id,
     );
 
     return {

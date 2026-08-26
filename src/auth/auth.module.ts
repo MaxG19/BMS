@@ -6,6 +6,8 @@ import { PasswordHashService } from './password-hash.service';
 import { PasswordPolicyService } from './password-policy.service';
 import { AccessTokenService } from './access-token.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { AccessTokenVerificationService } from './access-token-verification.service';
+import { AccessTokenGuard } from './guards/access-token.guard';
 
 @Module({
   imports: [PrismaModule],
@@ -16,6 +18,8 @@ import { RefreshTokenService } from './refresh-token.service';
     PasswordPolicyService,
     AccessTokenService,
     RefreshTokenService,
+    AccessTokenVerificationService,
+    AccessTokenGuard,
   ],
 })
 export class AuthModule {}

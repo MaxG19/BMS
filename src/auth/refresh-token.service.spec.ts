@@ -95,7 +95,7 @@ describe('RefreshTokenService', () => {
     },
   };
 
-  const generateAccessTokenMock = jest.fn<Promise<string>, [string]>();
+  const generateAccessTokenMock = jest.fn<Promise<string>, [string, string]>();
 
   const accessTokenService = {
     generate: generateAccessTokenMock,
@@ -232,7 +232,10 @@ describe('RefreshTokenService', () => {
 
     expect(findFirstMock).toHaveBeenCalledTimes(1);
     expect(updateManyMock).toHaveBeenCalledTimes(1);
-    expect(generateAccessTokenMock).toHaveBeenCalledWith('identity-id');
+    expect(generateAccessTokenMock).toHaveBeenCalledWith(
+      'identity-id',
+      'session-id',
+    );
 
     const updateCall: SessionUpdateManyArgs = updateManyMock.mock.calls[0][0];
 

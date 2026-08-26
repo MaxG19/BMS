@@ -6,6 +6,8 @@ import {
 import { PrismaService } from '../database/prisma/prisma.service';
 import { PasswordHashService } from './password-hash.service';
 import { PasswordPolicyService } from './password-policy.service';
+import { RefreshTokenService } from './refresh-token.service';
+import { AccessTokenService } from './access-token.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -15,6 +17,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwordHashService: PasswordHashService,
     private readonly passwordPolicyService: PasswordPolicyService,
+    private readonly refreshTokenService: RefreshTokenService,
+    private readonly accessTokenService: AccessTokenService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -111,12 +115,52 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    const sessionResult = await this.refreshTokenService.createSession(
+      identity.id,
+    );
+
+    const accessToken = await this.accessTokenService.generate(
+      identity.id,
+      sessionResult.session.id,
+    );
+
     return {
       id: identity.id,
       email: identity.email,
       name: identity.name,
       status: identity.status,
       createdAt: identity.createdAt,
+      accessToken,
+      refreshToken: sessionResult.token,
     };
+  }
+
+  async logout(identityId: string, sessionId: string): Promise<void> {
+    const revokedAt = new Date();
+
+    const result = await this.prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        identityId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt,
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new UnauthorizedException('Invalid or expired session');
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        identityId,
+        eventType: 'LOGOUT',
+        metadata: {
+          sessionId,
+        },
+      },
+    });
   }
 }

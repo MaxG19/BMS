@@ -29,10 +29,12 @@ export class AccessTokenService {
     );
   }
 
-  async generate(identityId: string): Promise<string> {
+  async generate(identityId: string, sessionId: string): Promise<string> {
     const key = await this.privateKey;
 
-    return new SignJWT({})
+    return new SignJWT({
+      sid: sessionId,
+    })
       .setProtectedHeader({
         alg: 'RS256',
         typ: 'JWT',

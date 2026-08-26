@@ -10,6 +10,7 @@ describe('AccessTokenService', () => {
   const issuer = 'bms-api';
   const audience = 'bms-client';
   const identityId = 'identity-id';
+  const sessionId = 'session-id';
 
   beforeEach(async () => {
     const configService = new ConfigService({
@@ -28,7 +29,7 @@ describe('AccessTokenService', () => {
   });
 
   it('should generate a signed RS256 access token', async () => {
-    const token = await service.generate(identityId);
+    const token = await service.generate(identityId, sessionId);
 
     const result = await jwtVerify(token, publicKey, {
       algorithms: ['RS256'],
@@ -42,7 +43,7 @@ describe('AccessTokenService', () => {
   });
 
   it('should include the required JWT claims', async () => {
-    const token = await service.generate(identityId);
+    const token = await service.generate(identityId, sessionId);
 
     const { payload } = await jwtVerify(token, publicKey, {
       algorithms: ['RS256'],
@@ -57,8 +58,8 @@ describe('AccessTokenService', () => {
   });
 
   it('should generate a unique jti for every token', async () => {
-    const firstToken = await service.generate(identityId);
-    const secondToken = await service.generate(identityId);
+    const firstToken = await service.generate(identityId, sessionId);
+    const secondToken = await service.generate(identityId, sessionId);
 
     const first = await jwtVerify(firstToken, publicKey, {
       algorithms: ['RS256'],
@@ -80,7 +81,7 @@ describe('AccessTokenService', () => {
   it('should expire the access token after 15 minutes', async () => {
     const before = Math.floor(Date.now() / 1000);
 
-    const token = await service.generate(identityId);
+    const token = await service.generate(identityId, sessionId);
 
     const { payload } = await jwtVerify(token, publicKey, {
       algorithms: ['RS256'],
@@ -99,7 +100,7 @@ describe('AccessTokenService', () => {
   });
 
   it('should reject verification with a different public key', async () => {
-    const token = await service.generate(identityId);
+    const token = await service.generate(identityId, sessionId);
 
     const { publicKey: differentPublicKey } = await generateKeyPair('RS256');
 
@@ -113,7 +114,7 @@ describe('AccessTokenService', () => {
   });
 
   it('should not include sensitive authentication data in the payload', async () => {
-    const token = await service.generate(identityId);
+    const token = await service.generate(identityId, sessionId);
 
     const payload = JSON.parse(
       Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
@@ -122,5 +123,17 @@ describe('AccessTokenService', () => {
     expect(payload).not.toHaveProperty('password');
     expect(payload).not.toHaveProperty('passwordHash');
     expect(payload).not.toHaveProperty('email');
+  });
+
+  it('should include the session ID in the sid claim', async () => {
+    const token = await service.generate(identityId, sessionId);
+
+    const { payload } = await jwtVerify(token, publicKey, {
+      issuer,
+      audience,
+    });
+
+    expect(payload.sub).toBe(identityId);
+    expect(payload.sid).toBe(sessionId);
   });
 });

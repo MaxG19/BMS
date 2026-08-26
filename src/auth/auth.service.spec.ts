@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
@@ -37,9 +37,50 @@ describe('AuthService', () => {
     },
   };
 
+  type SessionUpdateArgs = {
+    where: {
+      id: string;
+      identityId: string;
+      revokedAt: null;
+    };
+    data: {
+      revokedAt: Date;
+    };
+  };
+
+  type SessionUpdateResult = {
+    count: number;
+  };
+
+  const sessionUpdateMock = jest.fn<
+    Promise<SessionUpdateResult>,
+    [SessionUpdateArgs]
+  >();
+
+  type AuditLogCreateArgs = {
+    data: {
+      identityId: string;
+      eventType: string;
+      metadata: {
+        sessionId: string;
+      };
+    };
+  };
+
+  const auditLogCreateMock = jest.fn<
+    Promise<{ id: string }>,
+    [AuditLogCreateArgs]
+  >();
+
   const prisma = {
     identity: {
       findUnique: jest.fn(),
+    },
+    session: {
+      updateMany: sessionUpdateMock,
+    },
+    auditLog: {
+      create: auditLogCreateMock,
     },
     $transaction: jest.fn(
       (callback: (tx: typeof transactionClient) => Promise<typeof identity>) =>
@@ -56,6 +97,14 @@ describe('AuthService', () => {
     validate: jest.fn(),
   };
 
+  const refreshTokenService = {
+    createSession: jest.fn(),
+  };
+
+  const accessTokenService = {
+    generate: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     createIdentityMock.mockResolvedValue(identity);
@@ -64,6 +113,8 @@ describe('AuthService', () => {
       prisma as never,
       passwordHashService,
       passwordPolicyService,
+      refreshTokenService as never,
+      accessTokenService as never,
     );
   });
 
@@ -164,5 +215,147 @@ describe('AuthService', () => {
 
     expect(passwordHashService.hash).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('should create a session and access token after successful login', async () => {
+    prisma.identity.findUnique.mockResolvedValue({
+      ...identity,
+      authenticationProviders: [
+        {
+          passwordHash: 'argon2-hash',
+        },
+      ],
+    });
+
+    passwordHashService.verify.mockResolvedValue(true);
+
+    refreshTokenService.createSession.mockResolvedValue({
+      token: 'refresh-token',
+      session: {
+        id: 'session-id',
+        identityId: 'identity-id',
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    accessTokenService.generate.mockResolvedValue('access-token');
+
+    const result = await service.login({
+      email: 'john@example.com',
+      password: 'StrongPassword!123',
+    });
+
+    expect(refreshTokenService.createSession).toHaveBeenCalledWith(
+      'identity-id',
+    );
+
+    expect(accessTokenService.generate).toHaveBeenCalledWith(
+      'identity-id',
+      'session-id',
+    );
+
+    expect(result).toEqual({
+      id: 'identity-id',
+      email: 'john@example.com',
+      name: 'John Doe',
+      status: 'ACTIVE',
+      createdAt: identity.createdAt,
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+    });
+  });
+
+  it('should reject invalid credentials without creating a session', async () => {
+    prisma.identity.findUnique.mockResolvedValue({
+      ...identity,
+      authenticationProviders: [
+        {
+          passwordHash: 'argon2-hash',
+        },
+      ],
+    });
+
+    passwordHashService.verify.mockResolvedValue(false);
+
+    await expect(
+      service.login({
+        email: 'john@example.com',
+        password: 'WrongPassword!123',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(refreshTokenService.createSession).not.toHaveBeenCalled();
+    expect(accessTokenService.generate).not.toHaveBeenCalled();
+  });
+
+  it('should reject a nonexistent account without creating a session', async () => {
+    prisma.identity.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.login({
+        email: 'unknown@example.com',
+        password: 'StrongPassword!123',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(refreshTokenService.createSession).not.toHaveBeenCalled();
+    expect(accessTokenService.generate).not.toHaveBeenCalled();
+  });
+
+  it('should revoke the authenticated session', async () => {
+    sessionUpdateMock.mockResolvedValue({
+      count: 1,
+    });
+
+    await service.logout('identity-id', 'session-id');
+
+    expect(sessionUpdateMock).toHaveBeenCalledTimes(1);
+
+    const updateArguments = sessionUpdateMock.mock.calls[0]?.[0];
+
+    expect(updateArguments).toBeDefined();
+    expect(updateArguments?.where).toEqual({
+      id: 'session-id',
+      identityId: 'identity-id',
+      revokedAt: null,
+    });
+
+    expect(updateArguments?.data.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('should reject logout when the session does not belong to the identity', async () => {
+    sessionUpdateMock.mockResolvedValue({
+      count: 0,
+    });
+
+    await expect(
+      service.logout('identity-id', 'another-session-id'),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(auditLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should create an audit log after successful logout', async () => {
+    sessionUpdateMock.mockResolvedValue({
+      count: 1,
+    });
+
+    auditLogCreateMock.mockResolvedValue({
+      id: 'audit-id',
+    });
+
+    await service.logout('identity-id', 'session-id');
+
+    expect(auditLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        identityId: 'identity-id',
+        eventType: 'LOGOUT',
+        metadata: {
+          sessionId: 'session-id',
+        },
+      },
+    });
   });
 });
