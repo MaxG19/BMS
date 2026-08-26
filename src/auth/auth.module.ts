@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { PasswordHashService } from './password-hash.service';
 import { PasswordPolicyService } from './password-policy.service';
 import { AccessTokenService } from './access-token.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Module({
   imports: [PrismaModule],
@@ -14,6 +15,7 @@ import { AccessTokenService } from './access-token.service';
     PasswordHashService,
     PasswordPolicyService,
     AccessTokenService,
+    RefreshTokenService,
   ],
 })
 export class AuthModule {}
