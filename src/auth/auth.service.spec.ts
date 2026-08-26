@@ -66,6 +66,7 @@ describe('AuthService', () => {
 
   const sessionRevocationService = {
     revokeRequired: jest.fn(),
+    revokeAll: jest.fn(),
   };
 
   beforeEach(() => {
@@ -287,6 +288,29 @@ describe('AuthService', () => {
 
     await expect(service.logout('identity-id', 'session-id')).rejects.toThrow(
       'Invalid or expired session',
+    );
+  });
+
+  it('should revoke all sessions through SessionRevocationService', async () => {
+    sessionRevocationService.revokeAll.mockResolvedValue(3);
+
+    const result = await service.logoutAll('identity-id');
+
+    expect(result).toBe(3);
+
+    expect(sessionRevocationService.revokeAll).toHaveBeenCalledWith(
+      'identity-id',
+      'LOGOUT_ALL',
+    );
+  });
+
+  it('should propagate logout-all revocation failures', async () => {
+    sessionRevocationService.revokeAll.mockRejectedValue(
+      new Error('Session revocation failed'),
+    );
+
+    await expect(service.logoutAll('identity-id')).rejects.toThrow(
+      'Session revocation failed',
     );
   });
 });

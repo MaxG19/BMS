@@ -8,6 +8,7 @@ describe('AuthController', () => {
     register: jest.fn(),
     login: jest.fn(),
     logout: jest.fn(),
+    logoutAll: jest.fn(),
   };
 
   beforeEach(() => {
@@ -92,5 +93,40 @@ describe('AuthController', () => {
     expect(result).not.toHaveProperty('accessToken');
     expect(result).not.toHaveProperty('refreshToken');
     expect(result).not.toHaveProperty('sessionId');
+  });
+
+  it('should logout all sessions for the authenticated identity', async () => {
+    authService.logoutAll.mockResolvedValue(3);
+
+    const request = {
+      user: {
+        identityId: 'identity-id',
+        sessionId: 'session-id',
+      },
+    } as AuthenticatedRequest;
+
+    const result = await controller.logoutAll(request);
+
+    expect(authService.logoutAll).toHaveBeenCalledWith('identity-id');
+    expect(result).toEqual({
+      revokedSessionCount: 3,
+    });
+  });
+
+  it('should propagate logout-all failures', async () => {
+    authService.logoutAll.mockRejectedValue(
+      new Error('Session revocation failed'),
+    );
+
+    const request = {
+      user: {
+        identityId: 'identity-id',
+        sessionId: 'session-id',
+      },
+    } as AuthenticatedRequest;
+
+    await expect(controller.logoutAll(request)).rejects.toThrow(
+      'Session revocation failed',
+    );
   });
 });

@@ -39,6 +39,39 @@ export class SessionRevocationService {
     });
   }
 
+  async revokeAll(identityId: string, reason = 'LOGOUT_ALL'): Promise<number> {
+    const revokedAt = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.session.updateMany({
+        where: {
+          identityId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt,
+        },
+      });
+
+      if (result.count === 0) {
+        return 0;
+      }
+
+      await tx.auditLog.create({
+        data: {
+          identityId,
+          eventType: 'SESSIONS_REVOKED',
+          metadata: {
+            reason,
+            revokedSessionCount: result.count,
+          },
+        },
+      });
+
+      return result.count;
+    });
+  }
+
   async revokeRequired(
     sessionId: string,
     identityId: string,

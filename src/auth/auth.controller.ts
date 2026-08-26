@@ -31,4 +31,16 @@ export class AuthController {
       message: 'Logged out successfully',
     };
   }
+
+  @Post('logout-all')
+  @UseGuards(AccessTokenGuard)
+  async logoutAll(@Req() request: AuthenticatedRequest) {
+    const revokedSessionCount = await this.authService.logoutAll(
+      request.user.identityId,
+    );
+
+    return {
+      revokedSessionCount,
+    };
+  }
 }

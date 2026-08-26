@@ -5,7 +5,7 @@ describe('SessionRevocationService', () => {
 
   type SessionUpdateArgs = {
     where: {
-      id: string;
+      id?: string;
       identityId: string;
       revokedAt: null;
     };
@@ -23,8 +23,9 @@ describe('SessionRevocationService', () => {
       identityId: string;
       eventType: string;
       metadata: {
-        sessionId: string;
+        sessionId?: string;
         reason: string;
+        revokedSessionCount?: number;
       };
     };
   };
@@ -39,6 +40,15 @@ describe('SessionRevocationService', () => {
     [AuditLogCreateArgs]
   >();
 
+  const transactionClient = {
+    session: {
+      updateMany: sessionUpdateMock,
+    },
+    auditLog: {
+      create: auditLogCreateMock,
+    },
+  };
+
   const prisma = {
     session: {
       updateMany: sessionUpdateMock,
@@ -46,6 +56,10 @@ describe('SessionRevocationService', () => {
     auditLog: {
       create: auditLogCreateMock,
     },
+    $transaction: jest.fn(
+      async (callback: (tx: typeof transactionClient) => Promise<number>) =>
+        callback(transactionClient),
+    ),
   };
 
   beforeEach(() => {
@@ -181,6 +195,102 @@ describe('SessionRevocationService', () => {
           },
         },
       });
+    });
+  });
+
+  describe('revokeAll', () => {
+    it('should revoke all active sessions for an identity', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 3 });
+      auditLogCreateMock.mockResolvedValue({ id: 'audit-id' });
+
+      const result = await service.revokeAll('identity-id');
+
+      expect(result).toBe(3);
+
+      const updateArguments = sessionUpdateMock.mock.calls[0]?.[0];
+
+      expect(updateArguments?.where).toEqual({
+        identityId: 'identity-id',
+        revokedAt: null,
+      });
+
+      expect(updateArguments?.data.revokedAt).toBeInstanceOf(Date);
+
+      expect(auditLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          identityId: 'identity-id',
+          eventType: 'SESSIONS_REVOKED',
+          metadata: {
+            reason: 'LOGOUT_ALL',
+            revokedSessionCount: 3,
+          },
+        },
+      });
+    });
+
+    it('should not affect sessions belonging to another identity', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 0 });
+
+      const result = await service.revokeAll('identity-id');
+
+      expect(result).toBe(0);
+
+      const updateArguments = sessionUpdateMock.mock.calls[0]?.[0];
+
+      expect(updateArguments?.where).toEqual({
+        identityId: 'identity-id',
+        revokedAt: null,
+      });
+
+      expect(auditLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should be idempotent when all sessions are already revoked', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 0 });
+
+      await expect(service.revokeAll('identity-id')).resolves.toBe(0);
+
+      expect(auditLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should use the supplied revocation reason', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 2 });
+      auditLogCreateMock.mockResolvedValue({ id: 'audit-id' });
+
+      await service.revokeAll('identity-id', 'SECURITY_RESPONSE');
+
+      expect(auditLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          identityId: 'identity-id',
+          eventType: 'SESSIONS_REVOKED',
+          metadata: {
+            reason: 'SECURITY_RESPONSE',
+            revokedSessionCount: 2,
+          },
+        },
+      });
+    });
+
+    it('should execute session revocation and audit logging in a transaction', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 3 });
+      auditLogCreateMock.mockResolvedValue({ id: 'audit-id' });
+
+      await service.revokeAll('identity-id');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(sessionUpdateMock).toHaveBeenCalledTimes(1);
+      expect(auditLogCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should propagate an audit failure from the transaction', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 3 });
+      auditLogCreateMock.mockRejectedValue(new Error('Audit log failed'));
+
+      await expect(service.revokeAll('identity-id')).rejects.toThrow(
+        'Audit log failed',
+      );
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
   });
 });

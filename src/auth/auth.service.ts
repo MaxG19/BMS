@@ -144,4 +144,8 @@ export class AuthService {
       'USER_LOGOUT',
     );
   }
+
+  async logoutAll(identityId: string): Promise<number> {
+    return this.sessionRevocationService.revokeAll(identityId, 'LOGOUT_ALL');
+  }
 }
