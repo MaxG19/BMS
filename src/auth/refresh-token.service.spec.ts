@@ -1,5 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { RefreshTokenService } from './refresh-token.service';
+import { SessionPolicyService } from './session-policy.service';
+import { SessionRevocationService } from './session-revocation.service';
 
 describe('RefreshTokenService', () => {
   let service: RefreshTokenService;
@@ -16,6 +18,8 @@ describe('RefreshTokenService', () => {
   const validatedSession = {
     id: session.id,
     identityId: session.identityId,
+    createdAt: session.createdAt,
+    lastActiveAt: session.lastActiveAt,
     expiresAt: session.expiresAt,
     revokedAt: session.revokedAt,
   };
@@ -41,13 +45,12 @@ describe('RefreshTokenService', () => {
     where: {
       refreshTokenHash: string;
       revokedAt: null;
-      expiresAt: {
-        gt: Date;
-      };
     };
     select: {
       id: boolean;
       identityId: boolean;
+      createdAt: boolean;
+      lastActiveAt: boolean;
       expiresAt: boolean;
       revokedAt: boolean;
     };
@@ -73,6 +76,8 @@ describe('RefreshTokenService', () => {
   type ValidatedSession = {
     id: string;
     identityId: string;
+    createdAt: Date;
+    lastActiveAt: Date;
     expiresAt: Date;
     revokedAt: Date | null;
   };
@@ -101,11 +106,26 @@ describe('RefreshTokenService', () => {
     generate: generateAccessTokenMock,
   };
 
+  const sessionPolicyService: jest.Mocked<
+    Pick<SessionPolicyService, 'isAbsolutelyExpired' | 'isIdle'>
+  > = {
+    isAbsolutelyExpired: jest.fn(),
+    isIdle: jest.fn(),
+  };
+
+  const sessionRevocationService: jest.Mocked<
+    Pick<SessionRevocationService, 'revoke'>
+  > = {
+    revoke: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     service = new RefreshTokenService(
       prisma as never,
       accessTokenService as never,
+      sessionPolicyService as never,
+      sessionRevocationService as never,
     );
   });
 
@@ -178,10 +198,17 @@ describe('RefreshTokenService', () => {
     const token = 'valid-refresh-token';
 
     findFirstMock.mockResolvedValue(validatedSession);
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(false);
 
     const result = await service.validateToken(token);
 
-    expect(result).toEqual(validatedSession);
+    expect(result).toEqual({
+      id: session.id,
+      identityId: session.identityId,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    });
 
     expect(findFirstMock).toHaveBeenCalledTimes(1);
 
@@ -189,11 +216,12 @@ describe('RefreshTokenService', () => {
 
     expect(findFirstCall.where.refreshTokenHash).toBe(service.hashToken(token));
     expect(findFirstCall.where.revokedAt).toBeNull();
-    expect(findFirstCall.where.expiresAt.gt).toBeInstanceOf(Date);
 
     expect(findFirstCall.select).toEqual({
       id: true,
       identityId: true,
+      createdAt: true,
+      lastActiveAt: true,
       expiresAt: true,
       revokedAt: true,
     });
@@ -221,6 +249,8 @@ describe('RefreshTokenService', () => {
     const newAccessToken = 'new-access-token';
 
     findFirstMock.mockResolvedValue(validatedSession);
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(false);
     updateManyMock.mockResolvedValue({ count: 1 });
     generateAccessTokenMock.mockResolvedValue(newAccessToken);
 
@@ -262,8 +292,97 @@ describe('RefreshTokenService', () => {
     expect(generateAccessTokenMock).not.toHaveBeenCalled();
   });
 
+  it('should reject a refresh token when the session is idle', async () => {
+    findFirstMock.mockResolvedValue({
+      id: session.id,
+      identityId: session.identityId,
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    });
+
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(true);
+    sessionRevocationService.revoke.mockResolvedValue(undefined);
+
+    await expect(service.validateToken('refresh-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(sessionRevocationService.revoke).toHaveBeenCalledWith(
+      session.id,
+      session.identityId,
+      expect.any(String),
+    );
+  });
+
+  it('should accept a refresh token when the session is active', async () => {
+    findFirstMock.mockResolvedValue({
+      id: session.id,
+      identityId: session.identityId,
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    });
+
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(false);
+
+    const result = await service.validateToken('refresh-token');
+
+    expect(result).toEqual({
+      id: session.id,
+      identityId: session.identityId,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    });
+
+    expect(sessionRevocationService.revoke).not.toHaveBeenCalled();
+  });
+
+  it('should reject a refresh token when no active session exists', async () => {
+    findFirstMock.mockResolvedValue(null);
+
+    await expect(service.validateToken('refresh-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(sessionPolicyService.isAbsolutelyExpired).not.toHaveBeenCalled();
+    expect(sessionPolicyService.isIdle).not.toHaveBeenCalled();
+    expect(sessionRevocationService.revoke).not.toHaveBeenCalled();
+  });
+
+  it('should reject rotation when the session has expired by policy', async () => {
+    findFirstMock.mockResolvedValue({
+      id: session.id,
+      identityId: session.identityId,
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    });
+
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(true);
+    sessionRevocationService.revoke.mockResolvedValue(undefined);
+
+    await expect(service.rotateToken('refresh-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(sessionRevocationService.revoke).toHaveBeenCalledWith(
+      session.id,
+      session.identityId,
+      expect.any(String),
+    );
+  });
+
   it('should reject rotation when the session was already rotated', async () => {
     findFirstMock.mockResolvedValue(validatedSession);
+    sessionPolicyService.isAbsolutelyExpired.mockReturnValue(false);
+    sessionPolicyService.isIdle.mockReturnValue(false);
     updateManyMock.mockResolvedValue({ count: 0 });
 
     await expect(

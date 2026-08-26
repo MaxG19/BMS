@@ -7,6 +7,8 @@ import { PasswordPolicyService } from './password-policy.service';
 import { AccessTokenService } from './access-token.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { AccessTokenVerificationService } from './access-token-verification.service';
+import { SessionPolicyService } from './session-policy.service';
+import { SessionRevocationService } from './session-revocation.service';
 import { AccessTokenGuard } from './guards/access-token.guard';
 
 @Module({
@@ -17,8 +19,10 @@ import { AccessTokenGuard } from './guards/access-token.guard';
     PasswordHashService,
     PasswordPolicyService,
     AccessTokenService,
-    RefreshTokenService,
     AccessTokenVerificationService,
+    RefreshTokenService,
+    SessionPolicyService,
+    SessionRevocationService,
     AccessTokenGuard,
   ],
 })

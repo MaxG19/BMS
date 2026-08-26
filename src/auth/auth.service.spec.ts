@@ -37,50 +37,9 @@ describe('AuthService', () => {
     },
   };
 
-  type SessionUpdateArgs = {
-    where: {
-      id: string;
-      identityId: string;
-      revokedAt: null;
-    };
-    data: {
-      revokedAt: Date;
-    };
-  };
-
-  type SessionUpdateResult = {
-    count: number;
-  };
-
-  const sessionUpdateMock = jest.fn<
-    Promise<SessionUpdateResult>,
-    [SessionUpdateArgs]
-  >();
-
-  type AuditLogCreateArgs = {
-    data: {
-      identityId: string;
-      eventType: string;
-      metadata: {
-        sessionId: string;
-      };
-    };
-  };
-
-  const auditLogCreateMock = jest.fn<
-    Promise<{ id: string }>,
-    [AuditLogCreateArgs]
-  >();
-
   const prisma = {
     identity: {
       findUnique: jest.fn(),
-    },
-    session: {
-      updateMany: sessionUpdateMock,
-    },
-    auditLog: {
-      create: auditLogCreateMock,
     },
     $transaction: jest.fn(
       (callback: (tx: typeof transactionClient) => Promise<typeof identity>) =>
@@ -105,6 +64,10 @@ describe('AuthService', () => {
     generate: jest.fn(),
   };
 
+  const sessionRevocationService = {
+    revokeRequired: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     createIdentityMock.mockResolvedValue(identity);
@@ -115,6 +78,7 @@ describe('AuthService', () => {
       passwordPolicyService,
       refreshTokenService as never,
       accessTokenService as never,
+      sessionRevocationService as never,
     );
   });
 
@@ -304,58 +268,25 @@ describe('AuthService', () => {
     expect(accessTokenService.generate).not.toHaveBeenCalled();
   });
 
-  it('should revoke the authenticated session', async () => {
-    sessionUpdateMock.mockResolvedValue({
-      count: 1,
-    });
+  it('should revoke the authenticated session through SessionRevocationService', async () => {
+    sessionRevocationService.revokeRequired.mockResolvedValue(undefined);
 
     await service.logout('identity-id', 'session-id');
 
-    expect(sessionUpdateMock).toHaveBeenCalledTimes(1);
-
-    const updateArguments = sessionUpdateMock.mock.calls[0]?.[0];
-
-    expect(updateArguments).toBeDefined();
-    expect(updateArguments?.where).toEqual({
-      id: 'session-id',
-      identityId: 'identity-id',
-      revokedAt: null,
-    });
-
-    expect(updateArguments?.data.revokedAt).toBeInstanceOf(Date);
+    expect(sessionRevocationService.revokeRequired).toHaveBeenCalledWith(
+      'session-id',
+      'identity-id',
+      'USER_LOGOUT',
+    );
   });
 
-  it('should reject logout when the session does not belong to the identity', async () => {
-    sessionUpdateMock.mockResolvedValue({
-      count: 0,
-    });
+  it('should propagate session revocation failures', async () => {
+    sessionRevocationService.revokeRequired.mockRejectedValue(
+      new UnauthorizedException('Invalid or expired session'),
+    );
 
-    await expect(
-      service.logout('identity-id', 'another-session-id'),
-    ).rejects.toThrow(UnauthorizedException);
-
-    expect(auditLogCreateMock).not.toHaveBeenCalled();
-  });
-
-  it('should create an audit log after successful logout', async () => {
-    sessionUpdateMock.mockResolvedValue({
-      count: 1,
-    });
-
-    auditLogCreateMock.mockResolvedValue({
-      id: 'audit-id',
-    });
-
-    await service.logout('identity-id', 'session-id');
-
-    expect(auditLogCreateMock).toHaveBeenCalledWith({
-      data: {
-        identityId: 'identity-id',
-        eventType: 'LOGOUT',
-        metadata: {
-          sessionId: 'session-id',
-        },
-      },
-    });
+    await expect(service.logout('identity-id', 'session-id')).rejects.toThrow(
+      'Invalid or expired session',
+    );
   });
 });

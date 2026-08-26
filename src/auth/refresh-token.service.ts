@@ -2,6 +2,8 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { AccessTokenService } from './access-token.service';
+import { SessionPolicyService } from './session-policy.service';
+import { SessionRevocationService } from './session-revocation.service';
 
 const REFRESH_TOKEN_BYTES = 32;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -11,6 +13,8 @@ export class RefreshTokenService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessTokenService: AccessTokenService,
+    private readonly sessionPolicyService: SessionPolicyService,
+    private readonly sessionRevocationService: SessionRevocationService,
   ) {}
   generateToken(): string {
     return randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
@@ -67,13 +71,12 @@ export class RefreshTokenService {
       where: {
         refreshTokenHash,
         revokedAt: null,
-        expiresAt: {
-          gt: new Date(),
-        },
       },
       select: {
         id: true,
         identityId: true,
+        createdAt: true,
+        lastActiveAt: true,
         expiresAt: true,
         revokedAt: true,
       },
@@ -83,33 +86,53 @@ export class RefreshTokenService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    return session;
+    const now = new Date();
+
+    if (session.expiresAt.getTime() <= now.getTime()) {
+      await this.sessionRevocationService.revoke(
+        session.id,
+        session.identityId,
+        'SESSION_EXPIRY',
+      );
+
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (this.sessionPolicyService.isAbsolutelyExpired(session.createdAt, now)) {
+      await this.sessionRevocationService.revoke(
+        session.id,
+        session.identityId,
+        'ABSOLUTE_SESSION_LIFETIME',
+      );
+
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (this.sessionPolicyService.isIdle(session.lastActiveAt, now)) {
+      await this.sessionRevocationService.revoke(
+        session.id,
+        session.identityId,
+        'IDLE_TIMEOUT',
+      );
+
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    return {
+      id: session.id,
+      identityId: session.identityId,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+    };
   }
 
   async rotateToken(refreshToken: string): Promise<{
     accessToken: string;
     refreshToken: string;
   }> {
+    const session = await this.validateToken(refreshToken);
     const now = new Date();
     const oldHash = this.hashToken(refreshToken);
-
-    const session = await this.prisma.session.findFirst({
-      where: {
-        refreshTokenHash: oldHash,
-        revokedAt: null,
-        expiresAt: {
-          gt: now,
-        },
-      },
-      select: {
-        id: true,
-        identityId: true,
-      },
-    });
-
-    if (!session) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
 
     const newRefreshToken = this.generateToken();
     const newHash = this.hashToken(newRefreshToken);

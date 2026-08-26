@@ -18,4 +18,7 @@ export const envValidationSchema = Joi.object({
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
 
   JWT_REFRESH_SECRET: Joi.string().required(),
+
+  JWT_SESSION_IDLE_TIMEOUT: Joi.string().required(),
+  JWT_SESSION_ABSOLUTE_LIFETIME: Joi.string().required(),
 });

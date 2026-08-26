@@ -8,6 +8,7 @@ import { PasswordHashService } from './password-hash.service';
 import { PasswordPolicyService } from './password-policy.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { AccessTokenService } from './access-token.service';
+import { SessionRevocationService } from './session-revocation.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -19,6 +20,7 @@ export class AuthService {
     private readonly passwordPolicyService: PasswordPolicyService,
     private readonly refreshTokenService: RefreshTokenService,
     private readonly accessTokenService: AccessTokenService,
+    private readonly sessionRevocationService: SessionRevocationService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -136,31 +138,10 @@ export class AuthService {
   }
 
   async logout(identityId: string, sessionId: string): Promise<void> {
-    const revokedAt = new Date();
-
-    const result = await this.prisma.session.updateMany({
-      where: {
-        id: sessionId,
-        identityId,
-        revokedAt: null,
-      },
-      data: {
-        revokedAt,
-      },
-    });
-
-    if (result.count !== 1) {
-      throw new UnauthorizedException('Invalid or expired session');
-    }
-
-    await this.prisma.auditLog.create({
-      data: {
-        identityId,
-        eventType: 'LOGOUT',
-        metadata: {
-          sessionId,
-        },
-      },
-    });
+    await this.sessionRevocationService.revokeRequired(
+      sessionId,
+      identityId,
+      'USER_LOGOUT',
+    );
   }
 }
