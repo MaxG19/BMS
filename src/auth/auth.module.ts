@@ -4,10 +4,16 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordHashService } from './password-hash.service';
 import { PasswordPolicyService } from './password-policy.service';
+import { AccessTokenService } from './access-token.service';
 
 @Module({
   imports: [PrismaModule],
   controllers: [AuthController],
-  providers: [AuthService, PasswordHashService, PasswordPolicyService],
+  providers: [
+    AuthService,
+    PasswordHashService,
+    PasswordPolicyService,
+    AccessTokenService,
+  ],
 })
 export class AuthModule {}
