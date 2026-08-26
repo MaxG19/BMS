@@ -1,14 +1,17 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma/prisma.service';
+import { AccessTokenService } from './access-token.service';
 
 const REFRESH_TOKEN_BYTES = 32;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class RefreshTokenService {
-  constructor(private readonly prisma: PrismaService) {}
-
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessTokenService: AccessTokenService,
+  ) {}
   generateToken(): string {
     return randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
   }
@@ -81,5 +84,62 @@ export class RefreshTokenService {
     }
 
     return session;
+  }
+
+  async rotateToken(refreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    const now = new Date();
+    const oldHash = this.hashToken(refreshToken);
+
+    const session = await this.prisma.session.findFirst({
+      where: {
+        refreshTokenHash: oldHash,
+        revokedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+      select: {
+        id: true,
+        identityId: true,
+      },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const newRefreshToken = this.generateToken();
+    const newHash = this.hashToken(newRefreshToken);
+
+    const rotated = await this.prisma.session.updateMany({
+      where: {
+        id: session.id,
+        refreshTokenHash: oldHash,
+        revokedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+      data: {
+        refreshTokenHash: newHash,
+        lastActiveAt: now,
+      },
+    });
+
+    if (rotated.count !== 1) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const accessToken = await this.accessTokenService.generate(
+      session.identityId,
+    );
+
+    return {
+      accessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 }

@@ -53,6 +53,21 @@ describe('RefreshTokenService', () => {
     };
   };
 
+  type SessionUpdateManyArgs = {
+    where: {
+      id: string;
+      refreshTokenHash: string;
+      revokedAt: null;
+      expiresAt: {
+        gt: Date;
+      };
+    };
+    data: {
+      refreshTokenHash: string;
+      lastActiveAt: Date;
+    };
+  };
+
   const createMock = jest.fn<Promise<typeof session>, [SessionCreateArgs]>();
 
   type ValidatedSession = {
@@ -67,16 +82,31 @@ describe('RefreshTokenService', () => {
     [SessionFindFirstArgs]
   >();
 
+  const updateManyMock = jest.fn<
+    Promise<{ count: number }>,
+    [SessionUpdateManyArgs]
+  >();
+
   const prisma = {
     session: {
       create: createMock,
       findFirst: findFirstMock,
+      updateMany: updateManyMock,
     },
+  };
+
+  const generateAccessTokenMock = jest.fn<Promise<string>, [string]>();
+
+  const accessTokenService = {
+    generate: generateAccessTokenMock,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new RefreshTokenService(prisma as never);
+    service = new RefreshTokenService(
+      prisma as never,
+      accessTokenService as never,
+    );
   });
 
   it('should generate a cryptographically random refresh token', () => {
@@ -184,5 +214,59 @@ describe('RefreshTokenService', () => {
 
     expect(result.session).not.toHaveProperty('refreshToken');
     expect(result.session).not.toHaveProperty('refreshTokenHash');
+  });
+
+  it('should rotate a valid refresh token', async () => {
+    const oldRefreshToken = 'old-refresh-token';
+    const newAccessToken = 'new-access-token';
+
+    findFirstMock.mockResolvedValue(validatedSession);
+    updateManyMock.mockResolvedValue({ count: 1 });
+    generateAccessTokenMock.mockResolvedValue(newAccessToken);
+
+    const result = await service.rotateToken(oldRefreshToken);
+
+    expect(result.accessToken).toBe(newAccessToken);
+    expect(result.refreshToken).toBeDefined();
+    expect(result.refreshToken).not.toBe(oldRefreshToken);
+
+    expect(findFirstMock).toHaveBeenCalledTimes(1);
+    expect(updateManyMock).toHaveBeenCalledTimes(1);
+    expect(generateAccessTokenMock).toHaveBeenCalledWith('identity-id');
+
+    const updateCall: SessionUpdateManyArgs = updateManyMock.mock.calls[0][0];
+
+    expect(updateCall.where.id).toBe('session-id');
+    expect(updateCall.where.refreshTokenHash).toBe(
+      service.hashToken(oldRefreshToken),
+    );
+    expect(updateCall.where.revokedAt).toBeNull();
+    expect(updateCall.where.expiresAt.gt).toBeInstanceOf(Date);
+
+    expect(updateCall.data.refreshTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(updateCall.data.refreshTokenHash).not.toBe(oldRefreshToken);
+    expect(updateCall.data.lastActiveAt).toBeInstanceOf(Date);
+  });
+
+  it('should reject rotation when the refresh token is invalid', async () => {
+    findFirstMock.mockResolvedValue(null);
+
+    await expect(service.rotateToken('invalid-refresh-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(updateManyMock).not.toHaveBeenCalled();
+    expect(generateAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject rotation when the session was already rotated', async () => {
+    findFirstMock.mockResolvedValue(validatedSession);
+    updateManyMock.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.rotateToken('already-used-refresh-token'),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(generateAccessTokenMock).not.toHaveBeenCalled();
   });
 });
