@@ -101,6 +101,7 @@ model Identity {
   authenticationProviders AuthenticationProvider[]
   sessions                Session[]
   auditLogs               AuditLog[]
+  passwordResetTokens     PasswordResetToken[]
   stockMovements          StockMovement[]
   createdPurchaseOrders   PurchaseOrder[]
   receivedGoodsReceipts   GoodsReceipt[]
@@ -349,6 +350,21 @@ model Session {
 
   @@index([identityId])
   @@index([refreshTokenHash])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  identityId String    @db.Uuid
+  tokenHash  String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  identity Identity @relation(fields: [identityId], references: [id], onDelete: Restrict)
+
+  @@index([identityId])
+  @@index([tokenHash])
+  @@index([expiresAt])
 }
 
 model AuditLog {

@@ -13,10 +13,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly client: Redis;
 
   constructor(private readonly configService: ConfigService) {
-  const redisUrl = this.configService.getOrThrow<string>('REDIS_URL');
+    const redisUrl = this.configService.getOrThrow<string>('REDIS_URL');
 
-  this.client = new Redis(redisUrl);
-}
+    this.client = new Redis(redisUrl);
+  }
 
   async onModuleInit(): Promise<void> {
     try {
@@ -44,6 +44,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.client.set(key, value);
+  }
+
+  async incrementWithExpiry(key: string, ttlSeconds: number): Promise<number> {
+    const count = await this.client.incr(key);
+
+    if (count === 1) {
+      await this.client.expire(key, ttlSeconds);
+    }
+
+    return count;
   }
 
   async delete(key: string): Promise<void> {

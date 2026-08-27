@@ -11,10 +11,18 @@ describe('AuthController', () => {
     logoutAll: jest.fn(),
   };
 
+  const passwordRecoveryService = {
+    requestReset: jest.fn(),
+    resetPassword: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
-    controller = new AuthController(authService as never);
+    controller = new AuthController(
+      authService as never,
+      passwordRecoveryService as never,
+    );
   });
 
   it('should delegate registration to AuthService', async () => {
@@ -128,5 +136,92 @@ describe('AuthController', () => {
     await expect(controller.logoutAll(request)).rejects.toThrow(
       'Session revocation failed',
     );
+  });
+
+  describe('forgotPassword', () => {
+    it('should delegate the password reset request to PasswordRecoveryService', async () => {
+      passwordRecoveryService.requestReset.mockResolvedValue({
+        message:
+          'If an account exists for that email, password reset instructions have been sent.',
+      });
+
+      const dto = {
+        email: 'user@example.com',
+      };
+
+      const result = await controller.forgotPassword(dto);
+
+      expect(passwordRecoveryService.requestReset).toHaveBeenCalledWith(
+        'user@example.com',
+      );
+
+      expect(result).toEqual({
+        message:
+          'If an account exists for that email, password reset instructions have been sent.',
+      });
+    });
+
+    it('should propagate password recovery failures', async () => {
+      const error = new Error('Notification failure');
+
+      passwordRecoveryService.requestReset.mockRejectedValue(error);
+
+      await expect(
+        controller.forgotPassword({
+          email: 'user@example.com',
+        }),
+      ).rejects.toThrow(error);
+
+      expect(passwordRecoveryService.requestReset).toHaveBeenCalledWith(
+        'user@example.com',
+      );
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('should delegate the password reset to PasswordRecoveryService', async () => {
+      passwordRecoveryService.resetPassword.mockResolvedValue(undefined);
+
+      const dto = {
+        token: 'reset-token',
+        password: 'NewPassword123!',
+      };
+
+      await expect(controller.resetPassword(dto)).resolves.toBeUndefined();
+
+      expect(passwordRecoveryService.resetPassword).toHaveBeenCalledWith(
+        'reset-token',
+        'NewPassword123!',
+      );
+    });
+
+    it('should propagate password reset failures', async () => {
+      const error = new Error('Password reset failed');
+
+      passwordRecoveryService.resetPassword.mockRejectedValue(error);
+
+      await expect(
+        controller.resetPassword({
+          token: 'reset-token',
+          password: 'NewPassword123!',
+        }),
+      ).rejects.toThrow(error);
+
+      expect(passwordRecoveryService.resetPassword).toHaveBeenCalledWith(
+        'reset-token',
+        'NewPassword123!',
+      );
+    });
+
+    it('should not expose authentication credentials after password reset', async () => {
+      passwordRecoveryService.resetPassword.mockResolvedValue(undefined);
+
+      const result = await controller.resetPassword({
+        token: 'reset-token',
+        password: 'NewPassword123!',
+      });
+
+      expect(result).toBeUndefined();
+    });
   });
 });
