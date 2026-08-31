@@ -17,6 +17,7 @@ describe('AuthService', () => {
       email: string;
       name: string;
       status: string;
+      emailVerifiedAt: Date | null;
       authenticationProviders: {
         create: {
           providerType: string;
@@ -83,10 +84,24 @@ describe('AuthService', () => {
     revokeOtherSessions: jest.fn(),
   };
 
+  const emailVerificationService = {
+    createVerificationToken: jest.fn(),
+  };
+
+  const notificationService = {
+    sendEmailVerificationEmail: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     passwordPolicyService.validate.mockImplementation(() => undefined);
     createIdentityMock.mockResolvedValue(identity);
+
+    emailVerificationService.createVerificationToken.mockResolvedValue(
+      'verification-token',
+    );
+
+    notificationService.sendEmailVerificationEmail.mockResolvedValue(undefined);
 
     service = new AuthService(
       prisma as never,
@@ -95,6 +110,8 @@ describe('AuthService', () => {
       refreshTokenService as never,
       accessTokenService as never,
       sessionRevocationService as never,
+      emailVerificationService as never,
+      notificationService as never,
     );
   });
 
@@ -157,6 +174,8 @@ describe('AuthService', () => {
       passwordHash: 'argon2-hash',
     });
 
+    expect(createArguments?.data.emailVerifiedAt).toBeNull();
+
     expect(JSON.stringify(createArguments)).not.toContain(password);
     expect(JSON.stringify(createArguments)).toContain('argon2-hash');
 
@@ -176,6 +195,64 @@ describe('AuthService', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(createIdentityMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should create an email verification token after registration', async () => {
+    prisma.identity.findUnique.mockResolvedValue(null);
+    passwordHashService.hash.mockResolvedValue('argon2-hash');
+
+    await service.register({
+      email: 'john@example.com',
+      password: 'StrongPassword!123',
+      name: 'John Doe',
+    });
+
+    expect(
+      emailVerificationService.createVerificationToken,
+    ).toHaveBeenCalledWith('identity-id');
+  });
+
+  it('should send the verification token through NotificationService', async () => {
+    prisma.identity.findUnique.mockResolvedValue(null);
+    passwordHashService.hash.mockResolvedValue('argon2-hash');
+
+    await service.register({
+      email: 'john@example.com',
+      password: 'StrongPassword!123',
+      name: 'John Doe',
+    });
+
+    expect(notificationService.sendEmailVerificationEmail).toHaveBeenCalledWith(
+      {
+        email: 'john@example.com',
+        verificationToken: 'verification-token',
+      },
+    );
+  });
+
+  it('should create the verification token before sending the verification email', async () => {
+    prisma.identity.findUnique.mockResolvedValue(null);
+    passwordHashService.hash.mockResolvedValue('argon2-hash');
+
+    const callOrder: string[] = [];
+
+    emailVerificationService.createVerificationToken.mockImplementation(() => {
+      callOrder.push('create-token');
+      return Promise.resolve('verification-token');
+    });
+
+    notificationService.sendEmailVerificationEmail.mockImplementation(() => {
+      callOrder.push('send-email');
+      return Promise.resolve();
+    });
+
+    await service.register({
+      email: 'john@example.com',
+      password: 'StrongPassword!123',
+      name: 'John Doe',
+    });
+
+    expect(callOrder).toEqual(['create-token', 'send-email']);
   });
 
   it('should not hash a password when password policy validation fails', async () => {

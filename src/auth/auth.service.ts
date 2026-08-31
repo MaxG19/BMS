@@ -9,6 +9,8 @@ import { PasswordPolicyService } from './password-policy.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { AccessTokenService } from './access-token.service';
 import { SessionRevocationService } from './session-revocation.service';
+import { EmailVerificationService } from './email-verification.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -21,6 +23,8 @@ export class AuthService {
     private readonly refreshTokenService: RefreshTokenService,
     private readonly accessTokenService: AccessTokenService,
     private readonly sessionRevocationService: SessionRevocationService,
+    private readonly emailVerificationService: EmailVerificationService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -51,6 +55,7 @@ export class AuthService {
           email,
           name: dto.name,
           status: 'ACTIVE',
+          emailVerifiedAt: null,
           authenticationProviders: {
             create: {
               providerType: 'PASSWORD',
@@ -63,9 +68,18 @@ export class AuthService {
           email: true,
           name: true,
           status: true,
+          emailVerifiedAt: true,
           createdAt: true,
         },
       });
+    });
+
+    const verificationToken =
+      await this.emailVerificationService.createVerificationToken(identity.id);
+
+    await this.notificationService.sendEmailVerificationEmail({
+      email: identity.email,
+      verificationToken,
     });
 
     return identity;

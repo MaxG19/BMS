@@ -12,6 +12,7 @@ import { RefreshTokenService } from './refresh-token.service';
 import { SessionPolicyService } from './session-policy.service';
 import { SessionRevocationService } from './session-revocation.service';
 import { PasswordRecoveryRateLimitModule } from './password-recovery-rate-limit.module';
+import { EmailVerificationService } from './email-verification.service';
 
 @Module({
   imports: [PrismaModule, NotificationModule, PasswordRecoveryRateLimitModule],
@@ -26,6 +27,7 @@ import { PasswordRecoveryRateLimitModule } from './password-recovery-rate-limit.
     AccessTokenVerificationService,
     SessionPolicyService,
     SessionRevocationService,
+    EmailVerificationService,
   ],
   exports: [
     AuthService,

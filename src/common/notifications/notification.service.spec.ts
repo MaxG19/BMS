@@ -26,4 +26,15 @@ describe('NotificationService', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  describe('sendEmailVerificationEmail', () => {
+    it('should accept an email verification notification', async () => {
+      await expect(
+        service.sendEmailVerificationEmail({
+          email: 'john@example.com',
+          verificationToken: 'verification-token',
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

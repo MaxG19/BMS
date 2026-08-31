@@ -5,6 +5,11 @@ export interface PasswordResetNotification {
   resetToken: string;
 }
 
+export interface EmailVerificationNotification {
+  email: string;
+  verificationToken: string;
+}
+
 @Injectable()
 export class NotificationService {
   sendPasswordResetEmail(
@@ -15,6 +20,21 @@ export class NotificationService {
      *
      * The actual email provider will be integrated here later.
      * The raw reset token is accepted only for delivery and must never
+     * be persisted or logged.
+     */
+    void notification;
+
+    return Promise.resolve();
+  }
+
+  sendEmailVerificationEmail(
+    notification: EmailVerificationNotification,
+  ): Promise<void> {
+    /*
+     * Notification delivery is intentionally kept behind this boundary.
+     *
+     * The actual email provider will be integrated here later.
+     * The raw verification token is accepted only for delivery and must never
      * be persisted or logged.
      */
     void notification;

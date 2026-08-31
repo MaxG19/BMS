@@ -91,17 +91,20 @@ enum CustomerStatus {
 }
 
 model Identity {
-  id                      String                   @id @default(uuid()) @db.Uuid
-  email                   String                   @unique
-  name                    String
-  status                  String
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @unique
+  name            String
+  status          String
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
   memberships             Membership[]
   authenticationProviders AuthenticationProvider[]
   sessions                Session[]
   auditLogs               AuditLog[]
   passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   stockMovements          StockMovement[]
   createdPurchaseOrders   PurchaseOrder[]
   receivedGoodsReceipts   GoodsReceipt[]
@@ -353,6 +356,21 @@ model Session {
 }
 
 model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  identityId String    @db.Uuid
+  tokenHash  String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  identity Identity @relation(fields: [identityId], references: [id], onDelete: Restrict)
+
+  @@index([identityId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
   id         String    @id @default(uuid()) @db.Uuid
   identityId String    @db.Uuid
   tokenHash  String

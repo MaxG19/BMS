@@ -16,12 +16,17 @@ describe('AuthController', () => {
     resetPassword: jest.fn(),
   };
 
+  const emailVerificationService = {
+    verifyEmail: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
     controller = new AuthController(
       authService as never,
       passwordRecoveryService as never,
+      emailVerificationService as never,
     );
   });
 
@@ -219,6 +224,48 @@ describe('AuthController', () => {
       const result = await controller.resetPassword({
         token: 'reset-token',
         password: 'NewPassword123!',
+      });
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('should delegate email verification to EmailVerificationService', async () => {
+      emailVerificationService.verifyEmail.mockResolvedValue(undefined);
+
+      const dto = {
+        token: 'verification-token',
+      };
+
+      await expect(controller.verifyEmail(dto)).resolves.toBeUndefined();
+
+      expect(emailVerificationService.verifyEmail).toHaveBeenCalledWith(
+        'verification-token',
+      );
+    });
+
+    it('should propagate email verification failures', async () => {
+      const error = new Error('Email verification failed');
+
+      emailVerificationService.verifyEmail.mockRejectedValue(error);
+
+      await expect(
+        controller.verifyEmail({
+          token: 'verification-token',
+        }),
+      ).rejects.toThrow(error);
+
+      expect(emailVerificationService.verifyEmail).toHaveBeenCalledWith(
+        'verification-token',
+      );
+    });
+
+    it('should not expose authentication credentials after email verification', async () => {
+      emailVerificationService.verifyEmail.mockResolvedValue(undefined);
+
+      const result = await controller.verifyEmail({
+        token: 'verification-token',
       });
 
       expect(result).toBeUndefined();
