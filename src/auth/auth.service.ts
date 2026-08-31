@@ -11,6 +11,7 @@ import { AccessTokenService } from './access-token.service';
 import { SessionRevocationService } from './session-revocation.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -147,5 +148,96 @@ export class AuthService {
 
   async logoutAll(identityId: string): Promise<number> {
     return this.sessionRevocationService.revokeAll(identityId, 'LOGOUT_ALL');
+  }
+
+  async changePassword(
+    identityId: string,
+    currentSessionId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const identity = await this.prisma.identity.findUnique({
+      where: {
+        id: identityId,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        status: true,
+        authenticationProviders: {
+          where: {
+            providerType: 'PASSWORD',
+          },
+          select: {
+            id: true,
+            passwordHash: true,
+          },
+        },
+      },
+    });
+
+    if (!identity || identity.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Invalid or expired authentication');
+    }
+
+    const passwordProvider = identity.authenticationProviders[0];
+
+    if (!passwordProvider?.passwordHash) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    const currentPasswordValid = await this.passwordHashService.verify(
+      currentPassword,
+      passwordProvider.passwordHash,
+    );
+
+    if (!currentPasswordValid) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    this.passwordPolicyService.validate(newPassword, {
+      email: identity.email,
+      name: identity.name,
+    });
+
+    const newPasswordHash = await this.passwordHashService.hash(newPassword);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.authenticationProvider.update({
+        where: {
+          id: passwordProvider.id,
+        },
+        data: {
+          passwordHash: newPasswordHash,
+        },
+      });
+
+      const revokedAt = new Date();
+
+      const result = await tx.session.updateMany({
+        where: {
+          identityId,
+          id: {
+            not: currentSessionId,
+          },
+          revokedAt: null,
+        },
+        data: {
+          revokedAt,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          identityId,
+          eventType: 'PASSWORD_CHANGED',
+          metadata: {
+            currentSessionId,
+            revokedSessionCount: result.count,
+          },
+        },
+      });
+    });
   }
 }

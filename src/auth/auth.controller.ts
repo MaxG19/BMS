@@ -5,6 +5,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import type { AuthenticatedRequest } from './guards/access-token.guard';
 
@@ -58,5 +59,19 @@ export class AuthController {
     return {
       revokedSessionCount,
     };
+  }
+
+  @Post('change-password')
+  @UseGuards(AccessTokenGuard)
+  async changePassword(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.authService.changePassword(
+      request.user.identityId,
+      request.user.sessionId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 }

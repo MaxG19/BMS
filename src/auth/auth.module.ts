@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PrismaModule } from '../database/prisma/prisma.module';
 import { NotificationModule } from '../common/notifications/notification.module';
 import { AccessTokenService } from './access-token.service';
 import { AccessTokenVerificationService } from './access-token-verification.service';
@@ -13,7 +14,7 @@ import { SessionRevocationService } from './session-revocation.service';
 import { PasswordRecoveryRateLimitModule } from './password-recovery-rate-limit.module';
 
 @Module({
-  imports: [NotificationModule, PasswordRecoveryRateLimitModule],
+  imports: [PrismaModule, NotificationModule, PasswordRecoveryRateLimitModule],
   controllers: [AuthController],
   providers: [
     AuthService,
