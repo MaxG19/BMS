@@ -1,3 +1,4 @@
+import { Prisma } from '../generated/prisma/client';
 import { SessionRevocationService } from './session-revocation.service';
 
 describe('SessionRevocationService', () => {
@@ -5,7 +6,7 @@ describe('SessionRevocationService', () => {
 
   type SessionUpdateArgs = {
     where: {
-      id?: string;
+      id?: string | { not: string };
       identityId: string;
       revokedAt: null;
     };
@@ -47,7 +48,7 @@ describe('SessionRevocationService', () => {
     auditLog: {
       create: auditLogCreateMock,
     },
-  };
+  } as unknown as Prisma.TransactionClient;
 
   const prisma = {
     session: {
@@ -57,7 +58,7 @@ describe('SessionRevocationService', () => {
       create: auditLogCreateMock,
     },
     $transaction: jest.fn(
-      async (callback: (tx: typeof transactionClient) => Promise<number>) =>
+      async (callback: (tx: Prisma.TransactionClient) => Promise<number>) =>
         callback(transactionClient),
     ),
   };
@@ -291,6 +292,70 @@ describe('SessionRevocationService', () => {
       );
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('revokeOtherSessions', () => {
+    it('should revoke all other active sessions while preserving the current session', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 2 });
+      auditLogCreateMock.mockResolvedValue({ id: 'audit-id' });
+
+      const result = await service.revokeOtherSessions(
+        transactionClient,
+        'identity-id',
+        'current-session-id',
+      );
+
+      expect(result).toBe(2);
+
+      const updateArguments = sessionUpdateMock.mock.calls[0]?.[0];
+
+      expect(updateArguments?.where).toEqual({
+        identityId: 'identity-id',
+        id: {
+          not: 'current-session-id',
+        },
+        revokedAt: null,
+      });
+
+      expect(updateArguments?.data.revokedAt).toBeInstanceOf(Date);
+
+      expect(auditLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          identityId: 'identity-id',
+          eventType: 'SESSIONS_REVOKED',
+          metadata: {
+            reason: 'PASSWORD_CHANGED',
+            revokedSessionCount: 2,
+          },
+        },
+      });
+    });
+
+    it('should not create an audit log when there are no other active sessions', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 0 });
+
+      const result = await service.revokeOtherSessions(
+        transactionClient,
+        'identity-id',
+        'current-session-id',
+      );
+
+      expect(result).toBe(0);
+      expect(auditLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should propagate audit failures from the transaction', async () => {
+      sessionUpdateMock.mockResolvedValue({ count: 2 });
+      auditLogCreateMock.mockRejectedValue(new Error('Audit log failed'));
+
+      await expect(
+        service.revokeOtherSessions(
+          transactionClient,
+          'identity-id',
+          'current-session-id',
+        ),
+      ).rejects.toThrow('Audit log failed');
     });
   });
 });

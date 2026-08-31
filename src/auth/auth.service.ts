@@ -11,7 +11,6 @@ import { AccessTokenService } from './access-token.service';
 import { SessionRevocationService } from './session-revocation.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -201,7 +200,7 @@ export class AuthService {
       name: identity.name,
     });
 
-    const newPasswordHash = await this.passwordHashService.hash(newPassword);
+    const passwordHash = await this.passwordHashService.hash(newPassword);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.authenticationProvider.update({
@@ -209,32 +208,22 @@ export class AuthService {
           id: passwordProvider.id,
         },
         data: {
-          passwordHash: newPasswordHash,
+          passwordHash,
         },
       });
 
-      const revokedAt = new Date();
-
-      const result = await tx.session.updateMany({
-        where: {
-          identityId,
-          id: {
-            not: currentSessionId,
-          },
-          revokedAt: null,
-        },
-        data: {
-          revokedAt,
-        },
-      });
+      await this.sessionRevocationService.revokeOtherSessions(
+        tx,
+        identity.id,
+        currentSessionId,
+      );
 
       await tx.auditLog.create({
         data: {
-          identityId,
+          identityId: identity.id,
           eventType: 'PASSWORD_CHANGED',
           metadata: {
             currentSessionId,
-            revokedSessionCount: result.count,
           },
         },
       });

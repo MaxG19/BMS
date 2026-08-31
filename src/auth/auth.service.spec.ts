@@ -35,15 +35,28 @@ describe('AuthService', () => {
     identity: {
       create: createIdentityMock,
     },
+    authenticationProvider: {
+      update: jest.fn(),
+    },
+    auditLog: {
+      create: jest.fn(),
+    },
   };
 
   const prisma = {
     identity: {
       findUnique: jest.fn(),
     },
+    authenticationProvider: {
+      update: jest.fn(),
+    },
+    auditLog: {
+      create: jest.fn(),
+    },
     $transaction: jest.fn(
-      (callback: (tx: typeof transactionClient) => Promise<typeof identity>) =>
-        callback(transactionClient),
+      async (
+        callback: (tx: typeof transactionClient) => Promise<void>,
+      ): Promise<void> => callback(transactionClient),
     ),
   };
 
@@ -67,10 +80,12 @@ describe('AuthService', () => {
   const sessionRevocationService = {
     revokeRequired: jest.fn(),
     revokeAll: jest.fn(),
+    revokeOtherSessions: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    passwordPolicyService.validate.mockImplementation(() => undefined);
     createIdentityMock.mockResolvedValue(identity);
 
     service = new AuthService(
@@ -312,5 +327,188 @@ describe('AuthService', () => {
     await expect(service.logoutAll('identity-id')).rejects.toThrow(
       'Session revocation failed',
     );
+  });
+
+  describe('changePassword', () => {
+    const passwordProvider = {
+      id: 'provider-id',
+      passwordHash: 'old-argon2-hash',
+    };
+
+    beforeEach(() => {
+      prisma.identity.findUnique.mockResolvedValue({
+        ...identity,
+        authenticationProviders: [passwordProvider],
+      });
+
+      passwordHashService.verify.mockResolvedValue(true);
+      passwordHashService.hash.mockResolvedValue('new-argon2-hash');
+
+      prisma.authenticationProvider.update.mockResolvedValue({
+        ...passwordProvider,
+        passwordHash: 'new-argon2-hash',
+      });
+
+      prisma.auditLog.create.mockResolvedValue({
+        id: 'audit-id',
+      });
+
+      sessionRevocationService.revokeOtherSessions.mockResolvedValue(2);
+    });
+
+    it('should change the password inside a transaction', async () => {
+      await service.changePassword(
+        'identity-id',
+        'current-session-id',
+        'OldPassword!123',
+        'NewPassword!456',
+      );
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+
+      expect(passwordHashService.verify).toHaveBeenCalledWith(
+        'OldPassword!123',
+        'old-argon2-hash',
+      );
+
+      expect(passwordPolicyService.validate).toHaveBeenCalledWith(
+        'NewPassword!456',
+        {
+          email: 'john@example.com',
+          name: 'John Doe',
+        },
+      );
+
+      expect(passwordHashService.hash).toHaveBeenCalledWith('NewPassword!456');
+
+      expect(
+        transactionClient.authenticationProvider.update,
+      ).toHaveBeenCalledWith({
+        where: {
+          id: 'provider-id',
+        },
+        data: {
+          passwordHash: 'new-argon2-hash',
+        },
+      });
+
+      expect(sessionRevocationService.revokeOtherSessions).toHaveBeenCalledWith(
+        transactionClient,
+        'identity-id',
+        'current-session-id',
+      );
+
+      expect(transactionClient.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          identityId: 'identity-id',
+          eventType: 'PASSWORD_CHANGED',
+          metadata: {
+            currentSessionId: 'current-session-id',
+          },
+        },
+      });
+    });
+
+    it('should reject an incorrect current password before changing anything', async () => {
+      passwordHashService.verify.mockResolvedValue(false);
+
+      await expect(
+        service.changePassword(
+          'identity-id',
+          'current-session-id',
+          'WrongPassword!123',
+          'NewPassword!456',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(passwordHashService.hash).not.toHaveBeenCalled();
+      expect(
+        transactionClient.authenticationProvider.update,
+      ).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(
+        sessionRevocationService.revokeOtherSessions,
+      ).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject an inactive identity', async () => {
+      prisma.identity.findUnique.mockResolvedValue({
+        ...identity,
+        status: 'SUSPENDED',
+        authenticationProviders: [passwordProvider],
+      });
+
+      await expect(
+        service.changePassword(
+          'identity-id',
+          'current-session-id',
+          'OldPassword!123',
+          'NewPassword!456',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(passwordHashService.verify).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should reject an identity without a password provider', async () => {
+      prisma.identity.findUnique.mockResolvedValue({
+        ...identity,
+        authenticationProviders: [],
+      });
+
+      await expect(
+        service.changePassword(
+          'identity-id',
+          'current-session-id',
+          'OldPassword!123',
+          'NewPassword!456',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(passwordHashService.verify).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should validate the new password before hashing it', async () => {
+      passwordPolicyService.validate.mockImplementation(() => {
+        throw new Error('Password policy rejected');
+      });
+
+      await expect(
+        service.changePassword(
+          'identity-id',
+          'current-session-id',
+          'OldPassword!123',
+          'WeakPassword',
+        ),
+      ).rejects.toThrow('Password policy rejected');
+
+      expect(passwordHashService.hash).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(
+        sessionRevocationService.revokeOtherSessions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should propagate transaction failures', async () => {
+      prisma.$transaction.mockRejectedValue(
+        new Error('Password change transaction failed'),
+      );
+
+      await expect(
+        service.changePassword(
+          'identity-id',
+          'current-session-id',
+          'OldPassword!123',
+          'NewPassword!456',
+        ),
+      ).rejects.toThrow('Password change transaction failed');
+
+      expect(
+        transactionClient.authenticationProvider.update,
+      ).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma/prisma.service';
 
 @Injectable()
@@ -104,5 +105,42 @@ export class SessionRevocationService {
         },
       },
     });
+  }
+  async revokeOtherSessions(
+    tx: Prisma.TransactionClient,
+    identityId: string,
+    currentSessionId: string,
+  ): Promise<number> {
+    const revokedAt = new Date();
+
+    const result = await tx.session.updateMany({
+      where: {
+        identityId,
+        id: {
+          not: currentSessionId,
+        },
+        revokedAt: null,
+      },
+      data: {
+        revokedAt,
+      },
+    });
+
+    if (result.count === 0) {
+      return 0;
+    }
+
+    await tx.auditLog.create({
+      data: {
+        identityId,
+        eventType: 'SESSIONS_REVOKED',
+        metadata: {
+          reason: 'PASSWORD_CHANGED',
+          revokedSessionCount: result.count,
+        },
+      },
+    });
+
+    return result.count;
   }
 }
