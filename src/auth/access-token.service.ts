@@ -12,7 +12,9 @@ export class AccessTokenService {
   private readonly expiresIn: string;
 
   constructor(private readonly configService: ConfigService) {
-    const privateKeyPath = this.configService.getOrThrow<string>(
+    const privateKey = this.configService.get<string>('JWT_ACCESS_PRIVATE_KEY');
+
+    const privateKeyPath = this.configService.get<string>(
       'JWT_ACCESS_PRIVATE_KEY_PATH',
     );
 
@@ -24,9 +26,12 @@ export class AccessTokenService {
       'JWT_ACCESS_EXPIRES_IN',
     );
 
-    this.privateKey = readFile(privateKeyPath, 'utf8').then((key) =>
-      importPKCS8(key, 'RS256'),
-    );
+    this.privateKey =
+      privateKey !== undefined
+        ? importPKCS8(privateKey.replace(/\\n/g, '\n'), 'RS256')
+        : readFile(privateKeyPath ?? '', 'utf8').then((key) =>
+            importPKCS8(key, 'RS256'),
+          );
   }
 
   async generate(identityId: string, sessionId: string): Promise<string> {

@@ -13,9 +13,16 @@ import { SessionPolicyService } from './session-policy.service';
 import { SessionRevocationService } from './session-revocation.service';
 import { PasswordRecoveryRateLimitModule } from './password-recovery-rate-limit.module';
 import { EmailVerificationService } from './email-verification.service';
+import { InvitationService } from './invitation.service';
+import { EmailVerificationRateLimitModule } from './email-verification.rate-limit.module';
 
 @Module({
-  imports: [PrismaModule, NotificationModule, PasswordRecoveryRateLimitModule],
+  imports: [
+    PrismaModule,
+    NotificationModule,
+    PasswordRecoveryRateLimitModule,
+    EmailVerificationRateLimitModule,
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -28,11 +35,13 @@ import { EmailVerificationService } from './email-verification.service';
     SessionPolicyService,
     SessionRevocationService,
     EmailVerificationService,
+    InvitationService,
   ],
   exports: [
     AuthService,
     PasswordRecoveryService,
     AccessTokenVerificationService,
+    InvitationService,
   ],
 })
 export class AuthModule {}

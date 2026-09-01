@@ -1,13 +1,19 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma/prisma.service';
+import { NotificationService } from '../common/notifications/notification.service';
+import { EmailVerificationRateLimitService } from './email-verification.rate-limit.service';
 
 const VERIFICATION_TOKEN_BYTES = 32;
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class EmailVerificationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+    private readonly emailVerificationRateLimitService: EmailVerificationRateLimitService,
+  ) {}
 
   generateVerificationToken(): string {
     return randomBytes(VERIFICATION_TOKEN_BYTES).toString('base64url');
@@ -31,6 +37,53 @@ export class EmailVerificationService {
     });
 
     return token;
+  }
+
+  async requestVerification(email: string): Promise<{
+    message: string;
+  }> {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    await this.emailVerificationRateLimitService.checkRequestLimit(
+      normalizedEmail,
+    );
+
+    const identity = await this.prisma.identity.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+        email: true,
+        emailVerifiedAt: true,
+      },
+    });
+
+    const message =
+      'If an account exists for that email and is not yet verified, verification instructions have been sent.';
+
+    if (!identity || identity.emailVerifiedAt) {
+      return { message };
+    }
+
+    const verificationToken = await this.createVerificationToken(identity.id);
+
+    await this.prisma.auditLog.create({
+      data: {
+        identityId: identity.id,
+        eventType: 'EMAIL_VERIFICATION_REQUESTED',
+        metadata: {
+          email: identity.email,
+        },
+      },
+    });
+
+    await this.notificationService.sendEmailVerificationEmail({
+      email: identity.email,
+      verificationToken,
+    });
+
+    return { message };
   }
 
   async validateVerificationToken(token: string): Promise<{

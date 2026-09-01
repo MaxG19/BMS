@@ -9,6 +9,7 @@ describe('AuthService', () => {
     email: 'john@example.com',
     name: 'John Doe',
     status: 'ACTIVE',
+    emailVerifiedAt: new Date(),
     createdAt: new Date(),
   };
 
@@ -131,6 +132,38 @@ describe('AuthService', () => {
     expect(passwordPolicyService.validate).not.toHaveBeenCalled();
     expect(passwordHashService.hash).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('should not create a duplicate identity when an invited email already has an identity', async () => {
+    prisma.identity.findUnique.mockResolvedValue({
+      id: 'existing-identity-id',
+    });
+
+    await expect(
+      service.register({
+        email: '  JOHN@EXAMPLE.COM  ',
+        password: 'StrongPassword!123',
+        name: 'John Doe',
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(prisma.identity.findUnique).toHaveBeenCalledWith({
+      where: {
+        email: 'john@example.com',
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    expect(createIdentityMock).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(
+      emailVerificationService.createVerificationToken,
+    ).not.toHaveBeenCalled();
+    expect(
+      notificationService.sendEmailVerificationEmail,
+    ).not.toHaveBeenCalled();
   });
 
   it('should validate the password before hashing it', async () => {
@@ -277,6 +310,7 @@ describe('AuthService', () => {
   it('should create a session and access token after successful login', async () => {
     prisma.identity.findUnique.mockResolvedValue({
       ...identity,
+      emailVerifiedAt: new Date(),
       authenticationProviders: [
         {
           passwordHash: 'argon2-hash',
@@ -313,7 +347,7 @@ describe('AuthService', () => {
       'session-id',
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       id: 'identity-id',
       email: 'john@example.com',
       name: 'John Doe',
@@ -322,6 +356,66 @@ describe('AuthService', () => {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
     });
+
+    expect(result.emailVerifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('should reject an unverified account after successful password verification', async () => {
+    prisma.identity.findUnique.mockResolvedValue({
+      ...identity,
+      emailVerifiedAt: null,
+      authenticationProviders: [
+        {
+          passwordHash: 'argon2-hash',
+        },
+      ],
+    });
+
+    passwordHashService.verify.mockResolvedValue(true);
+
+    await expect(
+      service.login({
+        email: 'john@example.com',
+        password: 'StrongPassword!123',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(passwordHashService.verify).toHaveBeenCalledWith(
+      'StrongPassword!123',
+      'argon2-hash',
+    );
+
+    expect(refreshTokenService.createSession).not.toHaveBeenCalled();
+    expect(accessTokenService.generate).not.toHaveBeenCalled();
+  });
+
+  it('should reject invalid credentials before checking email verification status', async () => {
+    prisma.identity.findUnique.mockResolvedValue({
+      ...identity,
+      emailVerifiedAt: null,
+      authenticationProviders: [
+        {
+          passwordHash: 'argon2-hash',
+        },
+      ],
+    });
+
+    passwordHashService.verify.mockResolvedValue(false);
+
+    await expect(
+      service.login({
+        email: 'john@example.com',
+        password: 'WrongPassword!123',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(passwordHashService.verify).toHaveBeenCalledWith(
+      'WrongPassword!123',
+      'argon2-hash',
+    );
+
+    expect(refreshTokenService.createSession).not.toHaveBeenCalled();
+    expect(accessTokenService.generate).not.toHaveBeenCalled();
   });
 
   it('should reject invalid credentials without creating a session', async () => {

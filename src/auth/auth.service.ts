@@ -96,6 +96,7 @@ export class AuthService {
         email: true,
         name: true,
         status: true,
+        emailVerifiedAt: true,
         createdAt: true,
         authenticationProviders: {
           where: {
@@ -131,6 +132,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (!identity.emailVerifiedAt) {
+      throw new UnauthorizedException({
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+        message: 'Email address must be verified',
+      });
+    }
+
     const sessionResult = await this.refreshTokenService.createSession(
       identity.id,
     );
@@ -145,6 +153,7 @@ export class AuthService {
       email: identity.email,
       name: identity.name,
       status: identity.status,
+      emailVerifiedAt: identity.emailVerifiedAt,
       createdAt: identity.createdAt,
       accessToken,
       refreshToken: sessionResult.token,

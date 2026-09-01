@@ -7,7 +7,7 @@ generator client {
   provider            = "prisma-client"
   output              = "../src/generated/prisma"
   moduleFormat        = "cjs"
-  importFileExtension = "ts"
+  importFileExtension = ""
 }
 
 datasource db {
@@ -398,21 +398,25 @@ model AuditLog {
 }
 
 model Invitation {
-  id         String   @id @default(uuid()) @db.Uuid
-  businessId String   @db.Uuid
-  roleId     String   @db.Uuid
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @db.Uuid
+  roleId     String    @db.Uuid
   email      String
-  token      String   @unique
+  tokenHash  String    @unique
   status     String
   expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
   role     Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
   @@index([roleId])
+  @@index([email])
+  @@index([expiresAt])
 }
 
 model Supplier {

@@ -1,4 +1,8 @@
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { EmailVerificationService } from './email-verification.service';
 
 describe('EmailVerificationService', () => {
@@ -42,6 +46,8 @@ describe('EmailVerificationService', () => {
   const findFirstVerificationTokenMock: jest.MockedFunction<
     (args: FindFirstVerificationTokenArgs) => Promise<VerificationToken | null>
   > = jest.fn();
+
+  const identityFindUniqueMock = jest.fn();
 
   type UpdateManyResult = {
     count: number;
@@ -96,6 +102,20 @@ describe('EmailVerificationService', () => {
     (args: CreateAuditLogArgs) => Promise<AuditLogCreateResult>
   > = jest.fn();
 
+  type CreateRequestAuditLogArgs = {
+    data: {
+      identityId: string;
+      eventType: string;
+      metadata: {
+        email: string;
+      };
+    };
+  };
+
+  const requestAuditLogCreateMock: jest.MockedFunction<
+    (args: CreateRequestAuditLogArgs) => Promise<AuditLogCreateResult>
+  > = jest.fn();
+
   const transactionClient = {
     emailVerificationToken: {
       updateMany: emailVerificationTokenUpdateManyMock,
@@ -109,21 +129,57 @@ describe('EmailVerificationService', () => {
   };
 
   const prisma = {
+    identity: {
+      findUnique: identityFindUniqueMock,
+    },
     emailVerificationToken: {
       create: createVerificationTokenMock,
       findFirst: findFirstVerificationTokenMock,
     },
+    auditLog: {
+      create: requestAuditLogCreateMock,
+    },
     $transaction: jest.fn(
-      async (
+      (
         callback: (tx: typeof transactionClient) => Promise<void>,
       ): Promise<void> => callback(transactionClient),
     ),
   };
 
+  const notificationService = {
+    sendEmailVerificationEmail: jest.fn(),
+  };
+
+  const emailVerificationRateLimitService = {
+    checkRequestLimit: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
-    service = new EmailVerificationService(prisma as never);
+    emailVerificationRateLimitService.checkRequestLimit.mockResolvedValue(
+      undefined,
+    );
+
+    notificationService.sendEmailVerificationEmail.mockResolvedValue(undefined);
+
+    createVerificationTokenMock.mockResolvedValue({
+      id: 'verification-token-id',
+    });
+
+    auditLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    requestAuditLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    service = new EmailVerificationService(
+      prisma as never,
+      notificationService as never,
+      emailVerificationRateLimitService as never,
+    );
   });
 
   describe('generateVerificationToken', () => {
@@ -221,6 +277,224 @@ describe('EmailVerificationService', () => {
         prisma.emailVerificationToken.create.mock.calls[0]?.[0];
 
       expect(createArguments?.data.tokenHash).not.toBe(token);
+    });
+  });
+
+  describe('requestVerification', () => {
+    const genericMessage =
+      'If an account exists for that email and is not yet verified, verification instructions have been sent.';
+
+    const unverifiedIdentity = {
+      id: 'identity-id',
+      email: 'john@example.com',
+      emailVerifiedAt: null,
+    };
+
+    const verifiedIdentity = {
+      id: 'identity-id',
+      email: 'john@example.com',
+      emailVerifiedAt: new Date(),
+    };
+
+    it('should normalize the email before checking the rate limit', async () => {
+      identityFindUniqueMock.mockResolvedValue(null);
+
+      await service.requestVerification('  JOHN@EXAMPLE.COM  ');
+
+      expect(
+        emailVerificationRateLimitService.checkRequestLimit,
+      ).toHaveBeenCalledWith('john@example.com');
+    });
+
+    it('should check the rate limit before looking up the identity', async () => {
+      identityFindUniqueMock.mockResolvedValue(null);
+
+      const callOrder: string[] = [];
+
+      emailVerificationRateLimitService.checkRequestLimit.mockImplementation(
+        () => {
+          callOrder.push('rate-limit');
+        },
+      );
+
+      identityFindUniqueMock.mockImplementation(() => {
+        callOrder.push('identity-lookup');
+        return null;
+      });
+
+      await service.requestVerification('john@example.com');
+
+      expect(callOrder).toEqual(['rate-limit', 'identity-lookup']);
+    });
+
+    it('should return the generic response for a nonexistent account', async () => {
+      identityFindUniqueMock.mockResolvedValue(null);
+
+      const result = await service.requestVerification('john@example.com');
+
+      expect(result).toEqual({
+        message: genericMessage,
+      });
+    });
+
+    it('should not send a verification email for a nonexistent account', async () => {
+      identityFindUniqueMock.mockResolvedValue(null);
+
+      await service.requestVerification('john@example.com');
+
+      expect(
+        notificationService.sendEmailVerificationEmail,
+      ).not.toHaveBeenCalled();
+
+      expect(createVerificationTokenMock).not.toHaveBeenCalled();
+
+      expect(auditLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should return the generic response for an already-verified account', async () => {
+      identityFindUniqueMock.mockResolvedValue(verifiedIdentity);
+
+      const result = await service.requestVerification('john@example.com');
+
+      expect(result).toEqual({
+        message: genericMessage,
+      });
+    });
+
+    it('should not create or send a verification token for an already-verified account', async () => {
+      identityFindUniqueMock.mockResolvedValue(verifiedIdentity);
+
+      await service.requestVerification('john@example.com');
+
+      expect(createVerificationTokenMock).not.toHaveBeenCalled();
+
+      expect(
+        notificationService.sendEmailVerificationEmail,
+      ).not.toHaveBeenCalled();
+
+      expect(auditLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should create a verification token for an unverified account', async () => {
+      identityFindUniqueMock.mockResolvedValue(unverifiedIdentity);
+
+      await service.requestVerification('john@example.com');
+
+      expect(createVerificationTokenMock).toHaveBeenCalledTimes(1);
+
+      const createArguments = createVerificationTokenMock.mock.calls[0]?.[0];
+
+      expect(createArguments).toBeDefined();
+      expect(createArguments?.data.identityId).toBe('identity-id');
+      expect(createArguments?.data.tokenHash).toEqual(expect.any(String));
+      expect(createArguments?.data.expiresAt).toEqual(expect.any(Date));
+    });
+
+    it('should send the raw verification token through NotificationService', async () => {
+      identityFindUniqueMock.mockResolvedValue(unverifiedIdentity);
+
+      jest
+        .spyOn(service, 'createVerificationToken')
+        .mockResolvedValue('verification-token');
+
+      await service.requestVerification('john@example.com');
+
+      expect(
+        notificationService.sendEmailVerificationEmail,
+      ).toHaveBeenCalledWith({
+        email: 'john@example.com',
+        verificationToken: 'verification-token',
+      });
+    });
+
+    it('should create the verification-request audit log without storing the raw token', async () => {
+      identityFindUniqueMock.mockResolvedValue(unverifiedIdentity);
+
+      jest
+        .spyOn(service, 'createVerificationToken')
+        .mockResolvedValue('verification-token');
+
+      await service.requestVerification('john@example.com');
+
+      expect(requestAuditLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          identityId: 'identity-id',
+          eventType: 'EMAIL_VERIFICATION_REQUESTED',
+          metadata: {
+            email: 'john@example.com',
+          },
+        },
+      });
+
+      const auditArguments = requestAuditLogCreateMock.mock.calls[0]?.[0];
+
+      expect(JSON.stringify(auditArguments)).not.toContain(
+        'verification-token',
+      );
+    });
+
+    it('should create the verification token before sending the verification email', async () => {
+      identityFindUniqueMock.mockResolvedValue(unverifiedIdentity);
+
+      const callOrder: string[] = [];
+
+      jest.spyOn(service, 'createVerificationToken').mockImplementation(() => {
+        callOrder.push('create-token');
+        return Promise.resolve('verification-token');
+      });
+
+      notificationService.sendEmailVerificationEmail.mockImplementation(() => {
+        callOrder.push('send-email');
+        return Promise.resolve();
+      });
+
+      await service.requestVerification('john@example.com');
+
+      expect(callOrder).toEqual(['create-token', 'send-email']);
+    });
+
+    it('should propagate rate-limit failures', async () => {
+      const error = new HttpException(
+        'Too many email verification requests. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+
+      emailVerificationRateLimitService.checkRequestLimit.mockRejectedValue(
+        error,
+      );
+
+      await expect(
+        service.requestVerification('john@example.com'),
+      ).rejects.toThrow('Too many email verification requests');
+
+      expect(identityFindUniqueMock).not.toHaveBeenCalled();
+      expect(createVerificationTokenMock).not.toHaveBeenCalled();
+      expect(
+        notificationService.sendEmailVerificationEmail,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should propagate notification failures', async () => {
+      identityFindUniqueMock.mockResolvedValue(unverifiedIdentity);
+
+      jest
+        .spyOn(service, 'createVerificationToken')
+        .mockResolvedValue('verification-token');
+
+      const error = new Error('Notification service unavailable');
+
+      notificationService.sendEmailVerificationEmail.mockRejectedValue(error);
+
+      await expect(
+        service.requestVerification('john@example.com'),
+      ).rejects.toThrow('Notification service unavailable');
+
+      expect(
+        notificationService.sendEmailVerificationEmail,
+      ).toHaveBeenCalledWith({
+        email: 'john@example.com',
+        verificationToken: 'verification-token',
+      });
     });
   });
 

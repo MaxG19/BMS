@@ -72,8 +72,8 @@ export class AuthController {
   @Post('change-password')
   @UseGuards(AccessTokenGuard)
   async changePassword(
-    @Req() request: AuthenticatedRequest,
     @Body() dto: ChangePasswordDto,
+    @Req() request: AuthenticatedRequest,
   ): Promise<void> {
     await this.authService.changePassword(
       request.user.identityId,

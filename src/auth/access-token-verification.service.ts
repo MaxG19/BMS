@@ -15,7 +15,9 @@ export class AccessTokenVerificationService {
   private readonly audience: string;
 
   constructor(private readonly configService: ConfigService) {
-    const publicKeyPath = this.configService.getOrThrow<string>(
+    const publicKey = this.configService.get<string>('JWT_ACCESS_PUBLIC_KEY');
+
+    const publicKeyPath = this.configService.get<string>(
       'JWT_ACCESS_PUBLIC_KEY_PATH',
     );
 
@@ -25,9 +27,12 @@ export class AccessTokenVerificationService {
       'JWT_ACCESS_AUDIENCE',
     );
 
-    this.publicKey = readFile(publicKeyPath, 'utf8').then((key) =>
-      importSPKI(key, 'RS256'),
-    );
+    this.publicKey =
+      publicKey !== undefined
+        ? importSPKI(publicKey.replace(/\\n/g, '\n'), 'RS256')
+        : readFile(publicKeyPath ?? '', 'utf8').then((key) =>
+            importSPKI(key, 'RS256'),
+          );
   }
 
   async verify(token: string): Promise<AccessTokenPayload> {

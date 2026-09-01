@@ -7,6 +7,17 @@ describe('NotificationService', () => {
     service = new NotificationService();
   });
 
+  it('should accept invitation email notifications', async () => {
+    const notification = {
+      email: 'john@example.com',
+      invitationToken: 'invitation-token',
+    };
+
+    await expect(
+      service.sendInvitationEmail(notification),
+    ).resolves.toBeUndefined();
+  });
+
   describe('sendPasswordResetEmail', () => {
     it('should accept a password reset notification', async () => {
       await expect(
