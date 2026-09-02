@@ -172,6 +172,23 @@ export class AuthService {
     return this.sessionRevocationService.revokeAll(identityId, 'LOGOUT_ALL');
   }
 
+  async getIdentityEmail(identityId: string): Promise<string> {
+    const identity = await this.prisma.identity.findUnique({
+      where: {
+        id: identityId,
+      },
+      select: {
+        email: true,
+      },
+    });
+
+    if (!identity) {
+      throw new UnauthorizedException('Invalid or expired authentication');
+    }
+
+    return identity.email;
+  }
+
   async changePassword(
     identityId: string,
     currentSessionId: string,

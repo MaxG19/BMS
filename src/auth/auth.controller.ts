@@ -10,6 +10,8 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AccessTokenGuard } from './guards/access-token.guard';
 import type { AuthenticatedRequest } from './guards/access-token.guard';
+import { InvitationService } from './invitation.service';
+import { AcceptInvitationDto } from './dto/accept-invitation.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -17,6 +19,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly passwordRecoveryService: PasswordRecoveryService,
     private readonly emailVerificationService: EmailVerificationService,
+    private readonly invitationService: InvitationService,
   ) {}
 
   @Post('register')
@@ -42,6 +45,23 @@ export class AuthController {
   @Post('verify-email')
   async verifyEmail(@Body() dto: VerifyEmailDto): Promise<void> {
     await this.emailVerificationService.verifyEmail(dto.token);
+  }
+
+  @Post('accept-invitation')
+  @UseGuards(AccessTokenGuard)
+  async acceptInvitation(
+    @Body() dto: AcceptInvitationDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const identity = await this.authService.getIdentityEmail(
+      request.user.identityId,
+    );
+
+    return this.invitationService.acceptInvitation(
+      dto.token,
+      request.user.identityId,
+      identity,
+    );
   }
 
   @Post('logout')

@@ -9,6 +9,7 @@ describe('AuthController', () => {
     login: jest.fn(),
     logout: jest.fn(),
     logoutAll: jest.fn(),
+    getIdentityEmail: jest.fn(),
   };
 
   const passwordRecoveryService = {
@@ -20,6 +21,10 @@ describe('AuthController', () => {
     verifyEmail: jest.fn(),
   };
 
+  const invitationService = {
+    acceptInvitation: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -27,6 +32,7 @@ describe('AuthController', () => {
       authService as never,
       passwordRecoveryService as never,
       emailVerificationService as never,
+      invitationService as never,
     );
   });
 
@@ -269,6 +275,54 @@ describe('AuthController', () => {
       });
 
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('acceptInvitation', () => {
+    const request = {
+      user: {
+        identityId: 'identity-id',
+        sessionId: 'session-id',
+      },
+    } as AuthenticatedRequest;
+
+    const dto = {
+      token: 'invitation-token',
+    };
+
+    it('should accept an invitation for the authenticated identity', async () => {
+      authService.getIdentityEmail.mockResolvedValue('john@example.com');
+      invitationService.acceptInvitation.mockResolvedValue(undefined);
+
+      await expect(
+        controller.acceptInvitation(dto, request),
+      ).resolves.toBeUndefined();
+
+      expect(authService.getIdentityEmail).toHaveBeenCalledWith('identity-id');
+
+      expect(invitationService.acceptInvitation).toHaveBeenCalledWith(
+        'invitation-token',
+        'identity-id',
+        'john@example.com',
+      );
+    });
+
+    it('should propagate invitation acceptance failures', async () => {
+      authService.getIdentityEmail.mockResolvedValue('john@example.com');
+
+      const error = new Error('Invitation acceptance failed');
+
+      invitationService.acceptInvitation.mockRejectedValue(error);
+
+      await expect(controller.acceptInvitation(dto, request)).rejects.toThrow(
+        error,
+      );
+
+      expect(invitationService.acceptInvitation).toHaveBeenCalledWith(
+        'invitation-token',
+        'identity-id',
+        'john@example.com',
+      );
     });
   });
 });
